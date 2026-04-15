@@ -1,0 +1,30 @@
+# Bike Theft Tracker — Cron Jobs
+# Add these to the server's crontab:  crontab -e
+#
+# All jobs run as the app user, not root.
+# DJANGO_SETTINGS_MODULE must be set in the environment.
+
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+PYTHONPATH=/var/www/btt/backend
+
+# ── Daily at 2:00 AM — PostgreSQL backup ──────────────────────────────────────
+0 2 * * * pg_dump -U bttadmin -h localhost bikethefttracker > /backups/db_$(date +\%F).sql 2>> /var/log/btt/cron.log
+
+# ── Daily at 2:05 AM — DBSCAN hotspot clustering (national + all cities) ──────
+5 2 * * * cd /var/www/btt/backend && python manage.py run_hotspot_analysis --all-cities >> /var/log/btt/cron.log 2>&1
+
+# ── Weekly Sunday at 3:00 AM — Trend analytics ────────────────────────────────
+0 3 * * 0 cd /var/www/btt/backend && python manage.py run_trend_analytics >> /var/log/btt/cron.log 2>&1
+
+# ── Daily at 3:30 AM — Purge old backups (keep 30 days) ──────────────────────
+30 3 * * * find /backups/ -name "db_*.sql" -mtime +30 -delete 2>> /var/log/btt/cron.log
+
+# ── Daily at 3:35 AM — Purge stale ML cache entries (expired > 2 days ago) ───
+35 3 * * * cd /var/www/btt/backend && python manage.py shell -c "
+from apps.ml.models import MLAnalysisCache
+from django.utils import timezone
+from datetime import timedelta
+deleted, _ = MLAnalysisCache.objects.filter(expires_at__lt=timezone.now() - timedelta(days=2)).delete()
+print(f'Purged {deleted} stale ML cache entries')
+" >> /var/log/btt/cron.log 2>&1
