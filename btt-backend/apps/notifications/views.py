@@ -39,7 +39,12 @@ class NotificationListView(generics.ListAPIView):
         unread_count = Notification.objects.filter(
             user=request.user, is_read=False
         ).count()
-        response.data["unread_count"] = unread_count
+        # response.data is a list from ListAPIView — wrap it in a dict
+        # so we can include unread_count alongside the results.
+        response.data = {
+            "unread_count": unread_count,
+            "results": response.data,
+        }
         return response
 
 
