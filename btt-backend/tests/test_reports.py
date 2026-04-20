@@ -86,6 +86,15 @@ class TestReportVisibility:
         ids = [r["id"] for r in response.data["results"]]
         assert sample_report.id in ids
 
+    def test_community_cannot_list_reports(self, community_client):
+        response = community_client.get("/api/reports/")
+        assert response.status_code == 200
+        assert response.data["count"] == 0
+
+    def test_community_cannot_view_report_detail(self, community_client, sample_report):
+        response = community_client.get(f"/api/reports/{sample_report.id}/")
+        assert response.status_code == 404
+
 
 @pytest.mark.django_db
 class TestStatusTransition:
@@ -160,3 +169,8 @@ class TestRecoveryRecord:
         # Owner should NOT see officer contact or full details
         assert "logged_by_id" not in response.data
         assert "recovery_city" in response.data
+
+    def test_community_cannot_get_recovery_record(self, community_client, recovered_report):
+        url = f"/api/reports/{recovered_report.id}/recovery/"
+        response = community_client.get(url)
+        assert response.status_code == 404

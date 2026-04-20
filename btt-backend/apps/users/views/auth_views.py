@@ -32,21 +32,29 @@ class LoginRateThrottle(AnonRateThrottle):
     scope = "login"
 
     def parse_rate(self, rate):
+        """Parse rates like '5/15min', '5/min', '10/hour', '30/15min'."""
         if rate is None:
             return (None, None)
         num, period = rate.split("/")
         num_requests = int(num)
-        if period.endswith("min"):
-            duration = int(period[:-3]) * 60
-        elif period.endswith("hour"):
-            duration = int(period[:-4]) * 3600
-        elif period.endswith("day"):
-            duration = int(period[:-3]) * 86400
-        elif period.endswith("sec"):
-            duration = int(period[:-3])
-        else:
-            duration = {"s": 1, "m": 60, "h": 3600, "d": 86400}[period[0]]
-        return (num_requests, duration)
+
+        # Standard single-unit shorthand: s, m, h, d
+        _standard = {"s": 1, "m": 60, "h": 3600, "d": 86400}
+        if period in _standard:
+            return (num_requests, _standard[period])
+
+        # Extended unit names with optional numeric prefix, e.g. "15min", "min", "2hour"
+        _units = [("min", 60), ("hour", 3600), ("day", 86400), ("sec", 1)]
+        for suffix, multiplier in _units:
+            if period.endswith(suffix):
+                prefix = period[: -len(suffix)]
+                # prefix is either a number ("15") or empty string (meaning 1)
+                count = int(prefix) if prefix else 1
+                return (num_requests, count * multiplier)
+
+        raise ValueError(f"Unrecognised throttle rate period: '{period}'. "
+                         f"Use formats like '5/min', '5/15min', '10/hour'.")
+
 
 
 class BTTTokenObtainPairSerializer(TokenObtainPairSerializer):

@@ -24,6 +24,12 @@ export default function AuthorityDashboard() {
       <h1 className="page-title">Authority Dashboard</h1>
       <p className="page-sub">{user?.city ? `${user.city} — ` : ''}Case management overview</p>
 
+      {!user?.city && (
+        <div className="alert alert-error mb-5">
+          ⚠️ Your account has no city assigned. All case data is city-scoped — contact an Admin to set your city before you can view reports.
+        </div>
+      )}
+
       {lr || ls ? <Spinner /> : (
         <>
           <div className="grid grid-cols-4 gap-3 mb-6">
@@ -44,7 +50,7 @@ export default function AuthorityDashboard() {
                     <tr key={r.id}>
                       <td><span className="mono text-primary">#{r.id}</span></td>
                       <td><Badge variant={STATUS_COLORS[r.status] ?? 'gray'}>{STATUS_LABELS[r.status] ?? r.status}</Badge></td>
-                      <td className="text-faint text-xs">{formatDate(r.reported_at)}</td>
+                      <td className="text-faint text-xs">{formatDate(r.created_at)}</td>
                     </tr>
                   ))}
                 </tbody>

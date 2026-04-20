@@ -115,12 +115,11 @@ class SightingListSerializer(serializers.ModelSerializer):
 class SightingListCreateView(generics.ListCreateAPIView):
     """
     POST /api/sightings/  — Any authenticated user submits sighting
-    GET  /api/sightings/  — Authority/Admin see all unverified sightings
+    GET  /api/sightings/  — Role-scoped:
+         Authority/Admin → all unverified sightings (sorted by confidence)
+         Owner/Community  → only their own sightings (all statuses)
     """
-    def get_permissions(self):
-        if self.request.method == "POST":
-            return [IsAnyAuthenticatedRole()]
-        return [IsAuthorityOrAdmin()]
+    permission_classes = [IsAnyAuthenticatedRole]
 
     def get_serializer_class(self):
         if self.request.method == "POST":
@@ -128,10 +127,19 @@ class SightingListCreateView(generics.ListCreateAPIView):
         return SightingListSerializer
 
     def get_queryset(self):
+        user = self.request.user
+        if user.is_authority or user.is_admin:
+            # Authority/Admin: unverified sightings sorted by match confidence
+            return (
+                SightingReport.objects.filter(is_verified=False)
+                .select_related("top_match_bike")
+                .order_by("-fuzzy_match_score", "-created_at")
+            )
+        # Owner / Community: their own submissions (all statuses so they can track them)
         return (
-            SightingReport.objects.filter(is_verified=False)
+            SightingReport.objects.filter(sighter=user)
             .select_related("top_match_bike")
-            .order_by("-fuzzy_match_score", "-created_at")
+            .order_by("-created_at")
         )
 
     def perform_create(self, serializer):
@@ -147,7 +155,14 @@ class SightingDetailView(generics.RetrieveAPIView):
     """GET /api/sightings/{id}/ — Full sighting detail with fuzzy match candidate"""
     serializer_class = SightingListSerializer
     permission_classes = [IsAnyAuthenticatedRole]
-    queryset = SightingReport.objects.select_related("top_match_bike", "sighter")
+
+    def get_queryset(self):
+        user = self.request.user
+        qs = SightingReport.objects.select_related("top_match_bike", "sighter")
+        if user.is_authority or user.is_admin:
+            return qs
+        # Owner/Community can only retrieve their own submissions.
+        return qs.filter(sighter=user)
 
 
 @api_view(["PUT"])

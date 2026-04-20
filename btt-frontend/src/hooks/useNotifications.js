@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { getNotifications, markRead as apiMarkRead, markAllRead as apiMarkAll } from '../api/notificationApi';
+import { normalizeNotificationList } from '../utils/notifications';
 
 /**
  * Returns full notification state + actions.
@@ -13,7 +14,7 @@ export function useNotifications() {
     setLoading(true);
     try {
       const { data } = await getNotifications();
-      setNotifications(data?.results ?? data?.notifications ?? data ?? []);
+      setNotifications(normalizeNotificationList(data));
     } catch (err) {
       setError(err.message);
     } finally {
@@ -55,7 +56,7 @@ export function useNotificationsCount() {
     async function fetch() {
       try {
         const { data } = await getNotifications();
-        const list = data?.results ?? data?.notifications ?? data ?? [];
+        const list = normalizeNotificationList(data);
         setUnread(list.filter((n) => !n.is_read).length);
       } catch { /* ignore */ }
     }

@@ -45,7 +45,7 @@ class TestNotificationList:
         # authority should see empty list (notification belongs to owner)
         authority_response = authority_client.get(self.url)
         assert authority_response.status_code == 200
-        assert authority_response.data["count"] == 0
+        assert authority_response.data["results"]["count"] == 0
 
     def test_unread_count_in_response(self, owner_client, unread_notification):
         response = owner_client.get(self.url)
@@ -277,6 +277,74 @@ class TestNotificationService:
         # bike is None — should return early
         from apps.notifications.notification_service import notify_sighting_verified
         notify_sighting_verified(sighting)  # should not raise
+
+    def test_notify_sighting_submitted_high_confidence_alerts_owner(self, community_user, sample_bike):
+        from apps.sightings.models import SightingReport
+        from apps.notifications.models import Notification
+        from apps.notifications.notification_service import notify_sighting_submitted
+        from datetime import date
+        sighting = SightingReport.objects.create(
+            sighter=community_user,
+            top_match_bike=sample_bike,
+            fuzzy_match_score=90,
+            sighting_date=date.today(),
+            sighting_city="Karachi",
+        )
+        notify_sighting_submitted(sighting)
+        assert Notification.objects.filter(
+            user=sample_bike.owner,
+            type=Notification.Type.SIGHTING_MATCHED,
+        ).exists()
+
+    def test_notify_sighting_submitted_low_confidence_skips_owner_alert(self, community_user, sample_bike):
+        from apps.sightings.models import SightingReport
+        from apps.notifications.models import Notification
+        from apps.notifications.notification_service import notify_sighting_submitted
+        from datetime import date
+        sighting = SightingReport.objects.create(
+            sighter=community_user,
+            top_match_bike=sample_bike,
+            fuzzy_match_score=50,
+            sighting_date=date.today(),
+            sighting_city="Karachi",
+        )
+        notify_sighting_submitted(sighting)
+        assert not Notification.objects.filter(
+            user=sample_bike.owner,
+            type=Notification.Type.SIGHTING_MATCHED,
+            message__icontains="may match your",
+        ).exists()
+
+    def test_notify_sighting_submitted_high_confidence_alerts_authority_and_admin(
+        self, community_user, sample_bike, authority_user, admin_user
+    ):
+        from apps.sightings.models import SightingReport
+        from apps.notifications.models import Notification
+        from apps.notifications.notification_service import notify_sighting_submitted
+        from datetime import date
+
+        authority_user.city = "Karachi"
+        authority_user.save(update_fields=["city"])
+
+        sighting = SightingReport.objects.create(
+            sighter=community_user,
+            top_match_bike=sample_bike,
+            fuzzy_match_score=88,
+            sighting_date=date.today(),
+            sighting_city="Karachi",
+        )
+        notify_sighting_submitted(sighting)
+
+        assert Notification.objects.filter(
+            user=authority_user,
+            type=Notification.Type.SYSTEM,
+            message__icontains="high-confidence sighting",
+        ).exists()
+        assert Notification.objects.filter(
+            user=admin_user,
+            type=Notification.Type.SYSTEM,
+            message__icontains="authority review pending",
+        ).exists()
 
 
 @pytest.mark.django_db

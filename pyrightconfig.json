@@ -15,5 +15,8 @@
   "ignore": [
     "**/migrations/**"
   ],
-  "reportMissingModuleSource": "none"
+  "reportMissingModuleSource": "none",
+  "extraPaths": [
+    "btt-backend"
+  ]
 }

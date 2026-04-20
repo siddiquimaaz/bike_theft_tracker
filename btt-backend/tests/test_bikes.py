@@ -134,3 +134,16 @@ class TestPublicSearch:
         response = api_client.get("/api/search/city/Karachi/")
         assert response.status_code == 200
         assert response.data["active_theft_reports"] >= 1
+
+
+@pytest.mark.django_db
+class TestStolenBikeList:
+    def test_authority_can_list_stolen_bikes(self, authority_client, sample_bike, sample_report):
+        response = authority_client.get("/api/bikes/stolen/")
+        assert response.status_code == 200
+        ids = [b["id"] for b in response.data["results"]]
+        assert sample_bike.id in ids
+
+    def test_owner_cannot_list_stolen_bikes(self, owner_client):
+        response = owner_client.get("/api/bikes/stolen/")
+        assert response.status_code == 403

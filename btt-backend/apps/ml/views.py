@@ -167,7 +167,7 @@ def recovery_zones(request):
 # ─── Manual Reanalysis Trigger ────────────────────────────────────────────────
 
 @api_view(["POST"])
-@permission_classes([IsAdminUser])
+@permission_classes([IsAuthorityOrAdmin])
 def trigger_reanalysis(request):
     """
     POST /api/ml/trigger-reanalysis/

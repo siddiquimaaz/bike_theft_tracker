@@ -2,13 +2,13 @@
 apps/bikes/views.py
 Bike CRUD (owner-only) and public vehicle search endpoints.
 """
-from django.db.models import Q
+from django.db.models import Q, Exists, OuterRef
 from rest_framework import generics, status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
-from apps.users.permissions import IsOwner
+from apps.users.permissions import IsOwner, IsAuthorityOrAdmin
 from .models import Bike
 from .serializers import (
     BikeCreateSerializer,
@@ -66,6 +66,39 @@ class BikeDetailView(generics.RetrieveUpdateDestroyAPIView):
         return Response(
             {"message": "Bike removed from your registry."},
             status=status.HTTP_204_NO_CONTENT,
+        )
+
+
+class StolenBikeListView(generics.ListAPIView):
+    """
+    GET /api/bikes/stolen/
+    All bikes that currently have an active theft report (status: stolen or
+    under_investigation).  Accessible to Authority and Admin only.
+    Returns the same BikeListSerializer shape as the owner endpoint —
+    no owner PII is included.  Used to populate dropdowns on sighting
+    verification and case management pages.
+    """
+    serializer_class = BikeListSerializer
+    permission_classes = [IsAuthorityOrAdmin]
+    ordering = ["-created_at"]
+
+    def get_queryset(self):
+        from apps.reports.models import TheftReport
+        active_report = TheftReport.objects.filter(
+            bike=OuterRef("pk"),
+            status__in=[
+                TheftReport.Status.STOLEN,
+                TheftReport.Status.UNDER_INVESTIGATION,
+            ],
+            deleted_at__isnull=True,
+        )
+        return (
+            Bike.objects.filter(
+                Exists(active_report),
+                deleted_at__isnull=True,
+            )
+            .prefetch_related("theft_reports")
+            .order_by("-created_at")
         )
 
 

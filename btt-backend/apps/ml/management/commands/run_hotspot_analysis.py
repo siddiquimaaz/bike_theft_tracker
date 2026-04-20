@@ -85,7 +85,6 @@ class Command(BaseCommand):
     def _write_audit_log(success_count: int, total: int):
         """Record cron job run in audit_logs using the system admin account."""
         try:
-            from django.contrib.auth import get_user_model
             from apps.users.models import AuditLog
             User = get_user_model()
             admin = User.objects.filter(role="admin", is_active=True).first()

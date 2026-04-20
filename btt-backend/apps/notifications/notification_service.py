@@ -35,8 +35,8 @@ def notify_theft_reported(report):
     )
     _create_in_app(owner, Notification.Type.THEFT_REPORTED, message, report)
 
-    from .email_service import send_theft_reported_email
-    send_theft_reported_email(owner, report)
+    # TODO (future release): send_theft_reported_email(owner, report)
+    # Requires EMAIL_HOST_USER + EMAIL_HOST_PASSWORD in .env
 
 
 # ─── Trigger: Status Changed ──────────────────────────────────────────────────
@@ -49,8 +49,7 @@ def notify_status_changed(report, old_status):
     )
     _create_in_app(owner, Notification.Type.STATUS_UPDATE, message, report)
 
-    from .email_service import send_status_update_email
-    send_status_update_email(owner, report, old_status)
+    # TODO (future release): send_status_update_email(owner, report, old_status)
 
 
 # ─── Trigger: Bike Recovered ──────────────────────────────────────────────────
@@ -64,11 +63,8 @@ def notify_bike_recovered(report, recovery):
     )
     _create_in_app(owner, Notification.Type.RECOVERY, message, report)
 
-    from .email_service import send_recovery_email
-    send_recovery_email(owner, report, recovery)
-
-    from .sms_service import send_recovery_sms
-    send_recovery_sms(owner, report, recovery)
+    # TODO (future release): send_recovery_email(owner, report, recovery)
+    # TODO (future release): send_recovery_sms(owner, report, recovery)
 
 
 # ─── Trigger: Recovery Record Amended ─────────────────────────────────────────
@@ -81,21 +77,76 @@ def notify_recovery_amended(report, recovery, officer):
     )
     _create_in_app(owner, Notification.Type.STATUS_UPDATE, message, report)
 
-    from .email_service import send_recovery_amended_email
-    send_recovery_amended_email(owner, report, recovery, officer)
+    # TODO (future release): send_recovery_amended_email(owner, report, recovery, officer)
 
 
 # ─── Trigger: Sighting Submitted ──────────────────────────────────────────────
 
+# Minimum fuzzy-match score that triggers an owner alert on submission.
+# Below this threshold the match is too uncertain to notify.
+_OWNER_ALERT_THRESHOLD = 70
+
 def notify_sighting_submitted(sighting):
-    """Notifies the sighter that their report was received."""
-    if not sighting.sighter:
-        return
-    message = (
-        f"Thank you for your sighting report in {sighting.sighting_city}. "
-        f"Status: Pending Verification."
-    )
-    _create_in_app(sighting.sighter, Notification.Type.SYSTEM, message)
+    """
+    1. Confirms receipt to the sighter (in-app).
+    2. If the fuzzy match score meets the threshold and a top-match bike
+       exists, alerts the bike owner immediately (in-app) — they don't
+       have to wait for authority verification to learn about the sighting.
+    """
+    # ── Notify the sighter ───────────────────────────────────────────────
+    if sighting.sighter:
+        score_note = (
+            f" A potential match was found ({sighting.fuzzy_match_score:.0f}% confidence)."
+            if sighting.fuzzy_match_score and sighting.fuzzy_match_score >= _OWNER_ALERT_THRESHOLD
+            else ""
+        )
+        _create_in_app(
+            sighting.sighter,
+            Notification.Type.SYSTEM,
+            f"Your sighting in {sighting.sighting_city} has been received."
+            f"{score_note} Authorities will review it shortly.",
+        )
+
+    # ── Alert the bike owner if confidence is high enough ────────────────
+    if (
+        sighting.fuzzy_match_score is not None
+        and sighting.fuzzy_match_score >= _OWNER_ALERT_THRESHOLD
+        and sighting.top_match_bike is not None
+    ):
+        owner = sighting.top_match_bike.owner
+        bike = sighting.top_match_bike
+        _create_in_app(
+            owner,
+            Notification.Type.SIGHTING_MATCHED,
+            f"A community sighting in {sighting.sighting_city} on {sighting.sighting_date} "
+            f"may match your {bike.make} {bike.model} "
+            f"({sighting.fuzzy_match_score:.0f}% confidence). "
+            f"Authorities have been notified and are reviewing the report.",
+        )
+
+        # Notify authority users in the same city and all admins so the
+        # verification queue is acted on quickly.
+        from apps.users.models import User
+        authority_qs = User.objects.filter(
+            role=User.Role.AUTHORITY,
+            is_active=True,
+            city__iexact=sighting.sighting_city or "",
+        )
+        admin_qs = User.objects.filter(role=User.Role.ADMIN, is_active=True)
+        for officer in authority_qs:
+            _create_in_app(
+                officer,
+                Notification.Type.SYSTEM,
+                f"New high-confidence sighting submitted in {sighting.sighting_city} "
+                f"({sighting.fuzzy_match_score:.0f}%). Review and verify promptly.",
+            )
+        for admin in admin_qs:
+            _create_in_app(
+                admin,
+                Notification.Type.SYSTEM,
+                f"High-confidence sighting submitted in {sighting.sighting_city}; "
+                f"authority review pending.",
+            )
 
 
 # ─── Trigger: Sighting Verified ───────────────────────────────────────────────
@@ -114,9 +165,5 @@ def notify_sighting_verified(sighting):
     # In-app notification
     _create_in_app(owner, Notification.Type.SIGHTING_MATCHED, message)
 
-    # Email + SMS for high-priority sighting
-    from .email_service import send_sighting_verified_email
-    send_sighting_verified_email(owner, sighting)
-
-    from .sms_service import send_sighting_verified_sms
-    send_sighting_verified_sms(owner, sighting)
+    # TODO (future release): send_sighting_verified_email(owner, sighting)
+    # TODO (future release): send_sighting_verified_sms(owner, sighting)

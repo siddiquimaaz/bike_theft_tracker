@@ -195,7 +195,18 @@ SIMPLE_JWT = {
 }
 
 # ─── Email ─────────────────────────────────────────────────────────────────────
-EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+# Use SMTP only when real credentials are present; fall back to console so that
+# missing/empty EMAIL_HOST_USER / EMAIL_HOST_PASSWORD never causes a connection
+# hang or authentication error that bleeds into notification daemon threads.
+_smtp_configured = bool(
+    os.getenv("EMAIL_HOST_USER", "").strip()
+    and os.getenv("EMAIL_HOST_PASSWORD", "").strip()
+)
+EMAIL_BACKEND = (
+    "django.core.mail.backends.smtp.EmailBackend"
+    if _smtp_configured
+    else "django.core.mail.backends.console.EmailBackend"
+)
 EMAIL_HOST = os.getenv("EMAIL_HOST", "smtp.gmail.com")
 EMAIL_PORT = int(os.getenv("EMAIL_PORT", 587))
 EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")

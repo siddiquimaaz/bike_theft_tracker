@@ -3,8 +3,11 @@ tests/test_sightings.py
 Sighting submission, listing, detail retrieval, and authority verification.
 """
 import pytest
+from io import BytesIO
 from datetime import date
 from django.contrib.auth import get_user_model
+from django.core.files.uploadedfile import SimpleUploadedFile
+from PIL import Image
 
 User = get_user_model()
 
@@ -111,13 +114,31 @@ class TestSightingList:
         response = admin_client.get(self.url)
         assert response.status_code == 200
 
-    def test_owner_cannot_list_sightings(self, owner_client):
+    def test_owner_sees_only_own_sightings(self, owner_client, owner_user):
+        from apps.sightings.models import SightingReport
+        SightingReport.objects.create(
+            sighter=owner_user,
+            raw_engine_number="OWN123",
+            sighting_date=date.today(),
+            sighting_city="Karachi",
+        )
         response = owner_client.get(self.url)
-        assert response.status_code == 403
+        assert response.status_code == 200
+        assert isinstance(response.data["results"], list)
+        for sighting in response.data["results"]:
+            assert sighting["id"] is not None
 
-    def test_community_cannot_list_sightings(self, community_client):
+    def test_community_sees_only_own_sightings(self, community_client, community_user):
+        from apps.sightings.models import SightingReport
+        SightingReport.objects.create(
+            sighter=community_user,
+            raw_chassis_number="COM123",
+            sighting_date=date.today(),
+            sighting_city="Lahore",
+        )
         response = community_client.get(self.url)
-        assert response.status_code == 403
+        assert response.status_code == 200
+        assert isinstance(response.data["results"], list)
 
     def test_unauthenticated_cannot_list_sightings(self, api_client):
         response = api_client.get(self.url)
@@ -134,10 +155,17 @@ class TestSightingList:
 
 @pytest.mark.django_db
 class TestSightingDetail:
-    def test_owner_can_retrieve_sighting(self, owner_client, sample_sighting):
-        response = owner_client.get(f"/api/sightings/{sample_sighting.id}/")
+    def test_owner_can_retrieve_own_sighting(self, owner_client, owner_user):
+        from apps.sightings.models import SightingReport
+        own = SightingReport.objects.create(
+            sighter=owner_user,
+            raw_engine_number="OWNER-DETAIL-1",
+            sighting_date=date.today(),
+            sighting_city="Karachi",
+        )
+        response = owner_client.get(f"/api/sightings/{own.id}/")
         assert response.status_code == 200
-        assert response.data["id"] == sample_sighting.id
+        assert response.data["id"] == own.id
 
     def test_community_can_retrieve_sighting(self, community_client, sample_sighting):
         response = community_client.get(f"/api/sightings/{sample_sighting.id}/")
@@ -153,6 +181,22 @@ class TestSightingDetail:
 
     def test_nonexistent_sighting_returns_404(self, owner_client):
         response = owner_client.get("/api/sightings/999999/")
+        assert response.status_code == 404
+
+    def test_owner_cannot_retrieve_others_sighting(self, owner_client, sample_sighting):
+        # sample_sighting belongs to community fixture user
+        response = owner_client.get(f"/api/sightings/{sample_sighting.id}/")
+        assert response.status_code == 404
+
+    def test_community_cannot_retrieve_others_sighting(self, community_client, owner_user):
+        from apps.sightings.models import SightingReport
+        other = SightingReport.objects.create(
+            sighter=owner_user,
+            raw_engine_number="OWN-ONLY-DETAIL",
+            sighting_date=date.today(),
+            sighting_city="Karachi",
+        )
+        response = community_client.get(f"/api/sightings/{other.id}/")
         assert response.status_code == 404
 
 
@@ -200,3 +244,42 @@ class TestVerifySighting:
         url = f"/api/sightings/{sample_sighting.id}/verify/"
         response = api_client.put(url, {"bike_id": sample_bike.id})
         assert response.status_code == 401
+
+
+@pytest.mark.django_db
+class TestSightingCoverageBranches:
+    def test_submit_with_photo_persists_filename(self, community_client, settings, tmp_path):
+        settings.MEDIA_ROOT = str(tmp_path)
+        img = BytesIO()
+        Image.new("RGB", (1, 1), color=(0, 255, 0)).save(img, format="PNG")
+        png_1x1 = img.getvalue()
+        photo = SimpleUploadedFile("spot.png", png_1x1, content_type="image/png")
+        payload = {
+            "raw_engine_number": "ENG-PHOTO-001",
+            "sighting_date": str(date.today()),
+            "sighting_city": "Karachi",
+            "photo": photo,
+        }
+        response = community_client.post("/api/sightings/", payload, format="multipart")
+        assert response.status_code == 201
+        from apps.sightings.models import SightingReport
+        sighting = SightingReport.objects.get(raw_engine_number="ENG-PHOTO-001")
+        assert sighting.photo_url
+        assert sighting.photo_url.endswith(".png")
+
+    def test_fuzzy_match_with_non_numeric_bike_id_is_ignored(self, community_client, monkeypatch):
+        def fake_matches(*args, **kwargs):
+            return [{"bike_id": "abc", "score": 72.5}]
+
+        monkeypatch.setattr("apps.ml.fuzzy_match.find_fuzzy_matches", fake_matches)
+        payload = {
+            "raw_engine_number": "ENG-INVALID-BIKE-ID",
+            "sighting_date": str(date.today()),
+            "sighting_city": "Karachi",
+        }
+        response = community_client.post("/api/sightings/", payload)
+        assert response.status_code == 201
+        from apps.sightings.models import SightingReport
+        sighting = SightingReport.objects.get(raw_engine_number="ENG-INVALID-BIKE-ID")
+        assert float(sighting.fuzzy_match_score) == 72.5
+        assert sighting.top_match_bike_id is None

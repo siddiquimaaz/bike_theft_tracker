@@ -38,7 +38,8 @@ class TheftReportListCreateView(generics.ListCreateAPIView):
     POST /api/reports/  — Owner files a new theft report
     """
     filterset_fields = ["status", "theft_city"]
-    search_fields = ["reference_number", "fir_number", "bike__engine_number"]
+    # reference_number is a @property — not a DB column — so it cannot be used in SearchFilter.
+    search_fields = ["fir_number", "bike__engine_number", "bike__chassis_number"]
     ordering_fields = ["created_at", "theft_date", "status"]
     ordering = ["-created_at"]
 
@@ -58,9 +59,16 @@ class TheftReportListCreateView(generics.ListCreateAPIView):
         if user.is_owner:
             return qs.filter(reported_by=user)
         if user.is_authority:
-            return qs.filter(theft_city__iexact=user.city or "")
-        # Admin sees all
-        return qs
+            # Authority officers are scoped to their registered city.
+            # If no city is configured on their account, return nothing
+            # until an admin sets their city — prevents inadvertent data exposure.
+            if not user.city:
+                return qs.none()
+            return qs.filter(theft_city__iexact=user.city)
+        if user.is_admin:
+            return qs
+        # Community users cannot read full theft case data.
+        return qs.none()
 
     def perform_create(self, serializer):
         report = serializer.save(reported_by=self.request.user)
@@ -92,8 +100,12 @@ class TheftReportDetailView(generics.RetrieveDestroyAPIView):
         if user.is_owner:
             return qs.filter(reported_by=user)
         if user.is_authority:
-            return qs.filter(theft_city__iexact=user.city or "")
-        return qs
+            if not user.city:
+                return qs.none()
+            return qs.filter(theft_city__iexact=user.city)
+        if user.is_admin:
+            return qs
+        return qs.none()
 
     def destroy(self, request, *args, **kwargs):
         from django.utils import timezone
@@ -117,7 +129,9 @@ def update_report_status(request, pk):
     """
     queryset = TheftReport.objects.filter(deleted_at__isnull=True)
     if request.user.is_authority:
-        queryset = queryset.filter(theft_city__iexact=request.user.city or "")
+        if not request.user.city:
+            return Response({"error": "Your account has no city configured. Contact an admin."}, status=status.HTTP_403_FORBIDDEN)
+        queryset = queryset.filter(theft_city__iexact=request.user.city)
 
     try:
         report = queryset.get(pk=pk)
@@ -164,7 +178,13 @@ def recovery_record(request, report_pk):
     if request.user.is_owner:
         queryset = queryset.filter(reported_by=request.user)
     elif request.user.is_authority:
-        queryset = queryset.filter(theft_city__iexact=request.user.city or "")
+        if not request.user.city:
+            return Response({"error": "Your account has no city configured. Contact an admin."}, status=status.HTTP_403_FORBIDDEN)
+        queryset = queryset.filter(theft_city__iexact=request.user.city)
+    elif request.user.is_admin:
+        pass
+    else:
+        queryset = queryset.none()
 
     try:
         report = queryset.get(pk=report_pk)
