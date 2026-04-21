@@ -101,6 +101,27 @@ class TestUserStatusUpdate:
 
 
 @pytest.mark.django_db
+class TestUserDelete:
+    def test_admin_can_delete_authority_user(self, admin_client, authority_user):
+        url = f"/api/admin/users/{authority_user.id}/"
+        response = admin_client.delete(url)
+        assert response.status_code == 204
+        authority_user.refresh_from_db()
+        assert authority_user.is_active is False
+        assert authority_user.deleted_at is not None
+
+    def test_owner_cannot_delete_users(self, owner_client, authority_user):
+        url = f"/api/admin/users/{authority_user.id}/"
+        response = owner_client.delete(url)
+        assert response.status_code == 403
+
+    def test_unauthenticated_delete_rejected(self, api_client, authority_user):
+        url = f"/api/admin/users/{authority_user.id}/"
+        response = api_client.delete(url)
+        assert response.status_code == 401
+
+
+@pytest.mark.django_db
 class TestAnalyticsOverview:
     url = "/api/admin/analytics/"
 

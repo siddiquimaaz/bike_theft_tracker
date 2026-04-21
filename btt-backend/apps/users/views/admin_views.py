@@ -5,6 +5,7 @@ Admin-only endpoints: user management, analytics overview, audit log.
 import logging
 from django.contrib.auth import get_user_model
 from django.db.models import Count, Q
+from django.utils import timezone
 from rest_framework import generics, status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
@@ -79,6 +80,23 @@ class UserStatusUpdateView(generics.UpdateAPIView):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response({"message": "User status updated.", "user": UserListSerializer(user).data})
+
+
+class UserDeleteView(generics.DestroyAPIView):
+    """
+    DELETE /api/admin/users/{id}/
+    Soft-delete any user (owner/authority/community/admin) by setting deleted_at
+    and deactivating the account.
+    """
+    permission_classes = [IsAdminUser]
+    queryset = User.objects.all()
+
+    def destroy(self, request, *args, **kwargs):
+        user = self.get_object()
+        user.deleted_at = timezone.now()
+        user.is_active = False
+        user.save(update_fields=["deleted_at", "is_active"])
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 @api_view(["GET"])
