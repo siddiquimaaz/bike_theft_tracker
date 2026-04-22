@@ -14,7 +14,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework import serializers
 
-from apps.users.permissions import IsAnyAuthenticatedRole, IsAuthorityOrAdmin
+from apps.users.permissions import IsAnyAuthenticatedRole, IsAuthorityOrAdmin, IsOwner
 from .models import SightingReport
 
 logger = logging.getLogger(__name__)
@@ -180,6 +180,18 @@ def verify_sighting(request, pk):
     except SightingReport.DoesNotExist:
         return Response({"error": "Sighting not found."}, status=status.HTTP_404_NOT_FOUND)
 
+    if request.user.is_authority:
+        if not request.user.city:
+            return Response(
+                {"error": "Your account has no city configured. Contact an admin."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        if (sighting.sighting_city or "").lower() != request.user.city.lower():
+            return Response(
+                {"error": "You can only verify sightings in your assigned city."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
     bike_id = request.data.get("bike_id")
     if not bike_id:
         return Response({"error": "bike_id is required to verify a sighting."}, status=status.HTTP_400_BAD_REQUEST)
@@ -210,7 +222,7 @@ def verify_sighting(request, pk):
 
 
 @api_view(["PUT"])
-@permission_classes([IsAnyAuthenticatedRole])
+@permission_classes([IsOwner])
 def owner_confirm_sighting(request, pk):
     """
     PUT /api/sightings/{id}/owner-confirm/

@@ -20,6 +20,10 @@ export const ROLE_COLORS = {
 };
 
 export const REPORT_STATUSES = {
+  // Legacy statuses (seeded data / backward compatibility)
+  STOLEN:               'stolen',
+  UNDER_INVESTIGATION:  'under_investigation',
+
   NEW_CASE:             'new_case',
   UNDER_REVIEW:         'under_review',
   ACTIVE_INVESTIGATION: 'active_investigation',
@@ -30,6 +34,9 @@ export const REPORT_STATUSES = {
 };
 
 export const STATUS_LABELS = {
+  stolen:               'Stolen',
+  under_investigation:  'Under Investigation',
+
   new_case:             'New Case',
   under_review:         'Under Review',
   active_investigation: 'Active Investigation',
@@ -40,6 +47,9 @@ export const STATUS_LABELS = {
 };
 
 export const STATUS_COLORS = {
+  stolen:               'red',
+  under_investigation:  'amber',
+
   new_case:             'red',
   under_review:         'orange',
   active_investigation: 'blue',
@@ -51,6 +61,10 @@ export const STATUS_COLORS = {
 
 // The legal status transitions for authority
 export const STATUS_TRANSITIONS = {
+  // Legacy path (seeded data)
+  stolen:               'under_investigation',
+  under_investigation:  'recovered',
+
   new_case:             'under_review',
   under_review:         'active_investigation',
   active_investigation: 'bike_located',

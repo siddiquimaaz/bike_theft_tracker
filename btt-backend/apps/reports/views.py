@@ -290,13 +290,12 @@ def confirm_recovery_receipt(request, report_pk):
     report.owner_recovery_confirmed = True
     report.owner_recovery_confirmed_at = timezone.now()
     report.owner_recovery_confirmed_by = request.user
-    report.status = TheftReport.Status.CLOSED
+    old_status = report.transition_status(TheftReport.Status.CLOSED, changed_by=request.user)
     report.save(
         update_fields=[
             "owner_recovery_confirmed",
             "owner_recovery_confirmed_at",
             "owner_recovery_confirmed_by",
-            "status",
             "updated_at",
         ]
     )
@@ -304,6 +303,7 @@ def confirm_recovery_receipt(request, report_pk):
         report,
         "owner_confirmed_recovery_receipt",
         actor=request.user,
+        metadata={"old_status": old_status, "new_status": report.status},
     )
     from apps.notifications.notification_service import notify_case_closed_to_contributors
     notify_case_closed_to_contributors(report)

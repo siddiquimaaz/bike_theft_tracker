@@ -95,7 +95,7 @@ export default function CaseReportsPage() {
                 → Advance to {STATUS_LABELS[STATUS_TRANSITIONS[detail.status]]}
               </Button>
             )}
-            {(detail.status === 'active_investigation' || detail.status === 'bike_located') && (
+            {(detail.status === 'active_investigation' || detail.status === 'bike_located' || detail.status === 'under_investigation') && (
               <Button variant="green" onClick={() => setRecovering(true)}>📍 Log Recovery</Button>
             )}
           </div>

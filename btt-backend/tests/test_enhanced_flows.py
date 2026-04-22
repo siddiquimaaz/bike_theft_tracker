@@ -5,7 +5,7 @@ from django.utils import timezone
 
 from apps.notifications.models import Notification
 from apps.notifications.notification_service import auto_escalate_pending_owner_responses
-from apps.reports.models import TheftReport, RecoveryRecord
+from apps.reports.models import TheftReport, RecoveryRecord, CaseTimeline
 from apps.sightings.models import SightingReport
 
 
@@ -28,6 +28,39 @@ def test_owner_confirm_recovery_closes_case(owner_client, authority_user, sample
     sample_report.refresh_from_db()
     assert sample_report.status == TheftReport.Status.CLOSED
     assert sample_report.owner_recovery_confirmed is True
+
+
+@pytest.mark.django_db
+def test_owner_confirm_recovery_updates_transition_audit_fields(owner_client, authority_user, sample_report):
+    sample_report.status = TheftReport.Status.ACTIVE_INVESTIGATION
+    sample_report.authority_last_action_at = timezone.now() - timedelta(days=2)
+    sample_report.save(update_fields=["status", "authority_last_action_at"])
+    prev_action_ts = sample_report.authority_last_action_at
+
+    RecoveryRecord.objects.create(
+        theft_report=sample_report,
+        logged_by=authority_user,
+        recovery_date=date.today(),
+        recovery_city="Karachi",
+        bike_condition="good",
+    )
+    sample_report.status = TheftReport.Status.PENDING_VERIFICATION
+    sample_report.save(update_fields=["status"])
+
+    response = owner_client.put(f"/api/reports/{sample_report.id}/recovery/confirm/", {})
+    assert response.status_code == 200
+
+    sample_report.refresh_from_db()
+    assert sample_report.status == TheftReport.Status.CLOSED
+    assert sample_report.authority_last_action_at > prev_action_ts
+
+    close_event = CaseTimeline.objects.filter(
+        theft_report=sample_report,
+        action="owner_confirmed_recovery_receipt",
+    ).last()
+    assert close_event is not None
+    assert close_event.metadata.get("old_status") == TheftReport.Status.PENDING_VERIFICATION
+    assert close_event.metadata.get("new_status") == TheftReport.Status.CLOSED
 
 
 @pytest.mark.django_db

@@ -37,7 +37,6 @@ def notify_theft_reported(report):
         f"Bike: {report.bike.make} {report.bike.model}."
     )
     _create_in_app(owner, Notification.Type.THEFT_REPORTED, message, report)
-    add_case_timeline_event(report, "report_filed", actor=owner, metadata={"status": report.status})
 
     # TODO (future release): send_theft_reported_email(owner, report)
     # Requires EMAIL_HOST_USER + EMAIL_HOST_PASSWORD in .env
@@ -46,12 +45,15 @@ def notify_theft_reported(report):
 # ─── Trigger: Status Changed ──────────────────────────────────────────────────
 
 def notify_status_changed(report, old_status):
-    owner = report.reported_by
-    message = (
-        f"Case {report.reference_number} status changed: "
-        f"{old_status} → {report.status}."
-    )
-    _create_in_app(owner, Notification.Type.STATUS_UPDATE, message, report)
+    # Keep owner notifications milestone-based to avoid noisy internal updates.
+    owner_visible_statuses = {"bike_located", "recovered"}
+    if report.status in owner_visible_statuses:
+        owner = report.reported_by
+        message = (
+            f"Case {report.reference_number} status changed: "
+            f"{old_status} → {report.status}."
+        )
+        _create_in_app(owner, Notification.Type.STATUS_UPDATE, message, report)
     add_case_timeline_event(
         report,
         "status_changed",

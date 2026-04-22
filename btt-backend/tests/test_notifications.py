@@ -197,11 +197,28 @@ class TestNotificationService:
     def test_notify_status_changed(self, sample_report):
         with patch("apps.notifications.email_service.send_mail"):
             from apps.notifications.notification_service import notify_status_changed
+            from apps.reports.models import TheftReport
+            sample_report.status = TheftReport.Status.BIKE_LOCATED
+            sample_report.save(update_fields=["status"])
             notify_status_changed(sample_report, "stolen")
         from apps.notifications.models import Notification
         assert Notification.objects.filter(
             user=sample_report.reported_by,
             type=Notification.Type.STATUS_UPDATE,
+        ).exists()
+
+    def test_notify_status_changed_skips_internal_states(self, sample_report):
+        with patch("apps.notifications.email_service.send_mail"):
+            from apps.notifications.notification_service import notify_status_changed
+            from apps.reports.models import TheftReport
+            sample_report.status = TheftReport.Status.UNDER_REVIEW
+            sample_report.save(update_fields=["status"])
+            notify_status_changed(sample_report, TheftReport.Status.NEW_CASE)
+        from apps.notifications.models import Notification
+        assert not Notification.objects.filter(
+            user=sample_report.reported_by,
+            type=Notification.Type.STATUS_UPDATE,
+            report=sample_report,
         ).exists()
 
     def test_notify_bike_recovered(self, recovered_report):

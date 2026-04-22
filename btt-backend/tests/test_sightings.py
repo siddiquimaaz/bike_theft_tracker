@@ -240,6 +240,18 @@ class TestVerifySighting:
         response = authority_client.put(url, {"bike_id": 999999})
         assert response.status_code == 404
 
+    def test_authority_cannot_verify_cross_city_sighting(
+        self, authority_client, authority_user, sample_sighting, sample_bike
+    ):
+        # sample_sighting is in Karachi by fixture; set authority to a different city.
+        authority_user.city = "Lahore"
+        authority_user.save(update_fields=["city"])
+
+        url = f"/api/sightings/{sample_sighting.id}/verify/"
+        response = authority_client.put(url, {"bike_id": sample_bike.id}, format="json")
+        assert response.status_code == 403
+        assert "assigned city" in response.data["error"]
+
     def test_unauthenticated_cannot_verify(self, api_client, sample_sighting, sample_bike):
         url = f"/api/sightings/{sample_sighting.id}/verify/"
         response = api_client.put(url, {"bike_id": sample_bike.id})

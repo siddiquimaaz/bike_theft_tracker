@@ -67,3 +67,27 @@ def test_owner_confirm_endpoint_yes_escalates(sample_bike, owner_user, authority
     assert sighting.owner_confirmation_status == "yes"
     # Authority should receive an URGENT notification after owner confirmation
     assert Notification.objects.filter(type=Notification.Type.URGENT, sighting_id=sighting.id).exists()
+
+
+@pytest.mark.django_db
+def test_owner_confirm_endpoint_rejects_non_owner_roles(
+    sample_bike, community_user, authority_client, community_client
+):
+    sighting = SightingReport.objects.create(
+        top_match_bike=sample_bike,
+        fuzzy_match_score=82,
+        photo_url="",
+        sighter=community_user,
+        sighting_date=date.today(),
+        sighting_city="Karachi",
+    )
+
+    authority_resp = authority_client.put(
+        f"/api/sightings/{sighting.id}/owner-confirm/", {"response": "yes"}, format="json"
+    )
+    community_resp = community_client.put(
+        f"/api/sightings/{sighting.id}/owner-confirm/", {"response": "yes"}, format="json"
+    )
+
+    assert authority_resp.status_code == 403
+    assert community_resp.status_code == 403
