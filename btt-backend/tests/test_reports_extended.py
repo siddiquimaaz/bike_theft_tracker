@@ -47,7 +47,7 @@ class TestRecoveryRecordExtended:
         assert "No recovery record" in response.data["error"]
 
     def test_owner_cannot_log_recovery(self, owner_client, sample_report):
-        sample_report.status = "under_investigation"
+        sample_report.status = "active_investigation"
         sample_report.save(update_fields=["status"])
         url = f"/api/reports/{sample_report.id}/recovery/"
         payload = {
@@ -70,7 +70,7 @@ class TestRecoveryRecordExtended:
             reported_by=owner_user_2,
             theft_date=date.today(),
             theft_city="Lahore",
-            status="stolen",
+            status="new_case",
         )
         url = f"/api/reports/{report.id}/recovery/"
         response = owner_client.get(url)

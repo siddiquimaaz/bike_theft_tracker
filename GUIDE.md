@@ -4,6 +4,12 @@
 
 ---
 
+## Demo Reset Guide
+
+Use `RESET_RUNBOOK.md` when you need to flush everything and start from a clean state before a presentation.
+
+---
+
 ## What This App Does
 
 Bike Theft Tracker is a REST API backend that lets four types of users manage bike theft cases end-to-end:

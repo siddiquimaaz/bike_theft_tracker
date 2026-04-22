@@ -85,6 +85,36 @@ class TestRegistration:
         response = api_client.post(self.url, payload)
         assert response.status_code == 400
 
+    def test_blank_cnic_phone_normalized_for_registration(self, api_client):
+        payload = {
+            "full_name": "Community User",
+            "email": "blank-fields@test.btt",
+            "role": "community",
+            "cnic": "",
+            "phone": "",
+            "password": "Test@12345",
+            "confirm_password": "Test@12345",
+        }
+        response = api_client.post(self.url, payload)
+        assert response.status_code == 201
+        user = User.objects.get(email="blank-fields@test.btt")
+        assert user.cnic is None
+        assert user.phone is None
+
+    def test_registration_returns_verification_link_in_local_dev_mode(self, api_client, settings):
+        settings.LOCAL_DEV_MODE = True
+        payload = {
+            "full_name": "Dev Owner",
+            "email": "dev-owner@test.btt",
+            "role": "owner",
+            "password": "Test@12345",
+            "confirm_password": "Test@12345",
+        }
+        response = api_client.post(self.url, payload)
+        assert response.status_code == 201
+        assert "verification_token" in response.data
+        assert "verification_url" in response.data
+
 
 @pytest.mark.django_db
 class TestEmailVerification:

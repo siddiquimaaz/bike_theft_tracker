@@ -5,6 +5,13 @@ Group 58 | Batch 2022F | BS Computer Science | SSUET, Karachi
 
 ---
 
+## Demo Reset Guide
+
+For a full "start from zero" reset (stop services, flush DB, rerun migrations, optional superuser/demo setup, restart app), use:
+- `RESET_RUNBOOK.md`
+
+---
+
 ## Tech Stack
 
 | Layer | Technology | Version |

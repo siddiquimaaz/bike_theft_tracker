@@ -6,6 +6,12 @@
 
 ---
 
+## Demo Reset Guide
+
+For recurring "reset and run" steps on an already configured machine, see `RESET_RUNBOOK.md`.
+
+---
+
 ## What You Will Install
 
 | Component | Version | Why |

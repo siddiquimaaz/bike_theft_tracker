@@ -51,6 +51,9 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         return value
 
     def validate(self, data):
+        for nullable in ("cnic", "phone", "city"):
+            if data.get(nullable) == "":
+                data[nullable] = None
         if data["password"] != data.pop("confirm_password"):
             raise serializers.ValidationError({"confirm_password": "Passwords do not match."})
         return data

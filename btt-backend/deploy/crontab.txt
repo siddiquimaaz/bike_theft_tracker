@@ -28,3 +28,9 @@ from datetime import timedelta
 deleted, _ = MLAnalysisCache.objects.filter(expires_at__lt=timezone.now() - timedelta(days=2)).delete()
 print(f'Purged {deleted} stale ML cache entries')
 " >> /var/log/btt/cron.log 2>&1
+
+# ── Every 15 minutes — Process sighting owner-response timeouts ───────────────
+*/15 * * * * cd /var/www/btt/backend && python manage.py process_sighting_timeouts >> /var/log/btt/cron.log 2>&1
+
+# ── Hourly — Case reminders and stale escalations ─────────────────────────────
+0 * * * * cd /var/www/btt/backend && python manage.py process_case_escalations >> /var/log/btt/cron.log 2>&1

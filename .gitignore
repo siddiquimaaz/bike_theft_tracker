@@ -38,6 +38,12 @@ coverage.xml
 .pytest_cache/
 .cache/
 
+# Frontend test artifacts
+btt-frontend/test-results/
+
+# Optional generated DB schema dump (use migrations instead)
+btt-backend/schema.sql
+
 # IDE
 .vscode/
 .idea/

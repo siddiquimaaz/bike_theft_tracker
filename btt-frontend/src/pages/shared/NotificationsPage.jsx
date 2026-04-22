@@ -3,7 +3,7 @@ import { Button, Spinner, EmptyState } from '../../components/UI';
 import NotificationItem from '../../components/cards/NotificationItem';
 
 export default function NotificationsPage() {
-  const { notifications, loading, unread, markRead, markAll } = useNotifications();
+  const { notifications, loading, unread, markRead, markAll, refetch } = useNotifications();
 
   return (
     <div>
@@ -22,7 +22,7 @@ export default function NotificationsPage() {
       ) : (
         <div className="flex flex-col gap-2">
           {notifications.map((n) => (
-            <NotificationItem key={n.id} notif={n} onRead={markRead} />
+            <NotificationItem key={n.id} notif={n} onRead={markRead} onRefresh={refetch} />
           ))}
         </div>
       )}

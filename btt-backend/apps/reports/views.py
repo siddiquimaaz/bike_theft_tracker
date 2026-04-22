@@ -19,6 +19,7 @@ from apps.users.permissions import (
     IsAdminUser,
 )
 from .models import TheftReport, RecoveryRecord
+from .timeline import add_case_timeline_event
 from .serializers import (
     TheftReportCreateSerializer,
     TheftReportListSerializer,
@@ -72,6 +73,12 @@ class TheftReportListCreateView(generics.ListCreateAPIView):
 
     def perform_create(self, serializer):
         report = serializer.save(reported_by=self.request.user)
+        add_case_timeline_event(
+            report,
+            "report_filed",
+            actor=self.request.user,
+            metadata={"status": report.status},
+        )
         # Fire post-create notification in background
         threading.Thread(
             target=_notify_report_created,
@@ -123,9 +130,7 @@ class TheftReportDetailView(generics.RetrieveDestroyAPIView):
 def update_report_status(request, pk):
     """
     PUT /api/reports/{id}/status/
-    Transitions report through the state machine:
-    stolen → under_investigation → recovered → closed
-    Triggers owner notification on every transition.
+    Transitions report through the state machine.
     """
     queryset = TheftReport.objects.filter(deleted_at__isnull=True)
     if request.user.is_authority:
@@ -154,6 +159,12 @@ def update_report_status(request, pk):
         args=(report, old_status),
         daemon=True,
     ).start()
+    add_case_timeline_event(
+        report,
+        "authority_status_changed",
+        actor=request.user,
+        metadata={"old_status": old_status, "new_status": report.status},
+    )
 
     return Response({
         "id": report.id,
@@ -212,15 +223,24 @@ def recovery_record(request, report_pk):
 
         serializer = RecoveryCreateSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
-        if report.status != TheftReport.Status.UNDER_INVESTIGATION:
+        if report.status not in (
+            TheftReport.Status.UNDER_INVESTIGATION,
+            TheftReport.Status.ACTIVE_INVESTIGATION,
+            TheftReport.Status.BIKE_LOCATED,
+        ):
             return Response(
-                {"error": "Recovery can only be logged when report is under investigation."},
+                {"error": "Recovery can only be logged for active investigations or located cases."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         with transaction.atomic():
             recovery = serializer.save(theft_report=report, logged_by=request.user)
-            report.transition_status(TheftReport.Status.RECOVERED, changed_by=request.user)
+            next_status = (
+                TheftReport.Status.RECOVERED
+                if report.status == TheftReport.Status.UNDER_INVESTIGATION
+                else TheftReport.Status.PENDING_VERIFICATION
+            )
+            report.transition_status(next_status, changed_by=request.user)
 
         threading.Thread(
             target=_notify_bike_recovered,
@@ -249,6 +269,45 @@ def recovery_record(request, report_pk):
         ).start()
 
         return Response(RecoveryRecordSerializer(recovery).data)
+
+
+@api_view(["PUT"])
+@permission_classes([IsOwner])
+def confirm_recovery_receipt(request, report_pk):
+    queryset = TheftReport.objects.filter(deleted_at__isnull=True, reported_by=request.user)
+    try:
+        report = queryset.get(pk=report_pk)
+    except TheftReport.DoesNotExist:
+        return Response({"error": "Report not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    if report.status not in (TheftReport.Status.PENDING_VERIFICATION, TheftReport.Status.RECOVERED):
+        return Response(
+            {"error": "Case is not awaiting owner verification."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    from django.utils import timezone
+    report.owner_recovery_confirmed = True
+    report.owner_recovery_confirmed_at = timezone.now()
+    report.owner_recovery_confirmed_by = request.user
+    report.status = TheftReport.Status.CLOSED
+    report.save(
+        update_fields=[
+            "owner_recovery_confirmed",
+            "owner_recovery_confirmed_at",
+            "owner_recovery_confirmed_by",
+            "status",
+            "updated_at",
+        ]
+    )
+    add_case_timeline_event(
+        report,
+        "owner_confirmed_recovery_receipt",
+        actor=request.user,
+    )
+    from apps.notifications.notification_service import notify_case_closed_to_contributors
+    notify_case_closed_to_contributors(report)
+    return Response({"message": "Recovery confirmed and case closed.", "status": report.status})
 
 
 # ─── Notification triggers ─────────────────────────────────────────────────────

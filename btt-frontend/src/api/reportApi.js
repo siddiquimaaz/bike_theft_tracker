@@ -8,3 +8,4 @@ export const updateStatus    = (id, status)   => API.put(`/api/reports/${id}/sta
 export const logRecovery     = (id, data)     => API.post(`/api/reports/${id}/recovery/`, data);
 export const getRecovery     = (id)           => API.get(`/api/reports/${id}/recovery/`);
 export const amendRecovery   = (id, data)     => API.put(`/api/reports/${id}/recovery/`, data);
+export const confirmRecoveryReceipt = (id)    => API.put(`/api/reports/${id}/recovery/confirm/`, {});

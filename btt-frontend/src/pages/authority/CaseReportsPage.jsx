@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { useFetch }                  from '../../hooks/useFetch';
-import { getReports, updateStatus, logRecovery } from '../../api/reportApi';
+import { getReports, getReport, updateStatus, logRecovery } from '../../api/reportApi';
 import { Badge, Button, Modal, Spinner, Alert } from '../../components/UI';
 import DataTable from '../../components/tables/DataTable';
 import { STATUS_COLORS, STATUS_LABELS, STATUS_TRANSITIONS } from '../../utils/constants';
 import { formatDate } from '../../utils/formatters';
+import CaseTimeline from '../../components/timeline/CaseTimeline';
 
 const EMPTY_REC = { recovery_city: '', recovery_date: '', bike_condition: 'good', notes: '' };
 
@@ -17,6 +18,17 @@ export default function CaseReportsPage() {
   const [recForm,    setRecForm]    = useState(EMPTY_REC);
   const [recError,   setRecError]   = useState('');
   const [saving,     setSaving]     = useState(false);
+  const [loadingDetail, setLoadingDetail] = useState(false);
+
+  async function openDetail(row) {
+    setLoadingDetail(true);
+    try {
+      const { data } = await getReport(row.id);
+      setDetail(data);
+    } finally {
+      setLoadingDetail(false);
+    }
+  }
 
   async function advance(id, nextStatus) {
     try { await updateStatus(id, nextStatus); refetch(); setDetail(null); }
@@ -56,7 +68,8 @@ export default function CaseReportsPage() {
       <h1 className="page-title">Case Reports</h1>
       <p className="page-sub">Manage and advance theft cases in your city</p>
 
-      <DataTable columns={columns} rows={reports} loading={loading} emptyIcon="📋" emptyTitle="No reports in your city" onRowClick={setDetail} />
+      <DataTable columns={columns} rows={reports} loading={loading} emptyIcon="📋" emptyTitle="No reports in your city" onRowClick={openDetail} />
+      {loadingDetail && <Spinner />}
 
       {detail && !recovering && (
         <Modal title={`Report #${detail.id} — ${detail.reference_number ?? ''}`} onClose={() => setDetail(null)}>
@@ -82,10 +95,11 @@ export default function CaseReportsPage() {
                 → Advance to {STATUS_LABELS[STATUS_TRANSITIONS[detail.status]]}
               </Button>
             )}
-            {detail.status === 'under_investigation' && (
+            {(detail.status === 'active_investigation' || detail.status === 'bike_located') && (
               <Button variant="green" onClick={() => setRecovering(true)}>📍 Log Recovery</Button>
             )}
           </div>
+          <CaseTimeline events={detail.timeline ?? []} />
         </Modal>
       )}
 

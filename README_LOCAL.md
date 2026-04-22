@@ -6,6 +6,12 @@
 
 ---
 
+## Demo Reset Guide
+
+Before presenting the app, follow `RESET_RUNBOOK.md` for a complete clean reset workflow.
+
+---
+
 ## What's Already Set Up
 
 | Component | Location | Details |

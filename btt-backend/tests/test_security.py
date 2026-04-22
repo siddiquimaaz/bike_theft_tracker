@@ -160,3 +160,4 @@ class TestUnverifiedUserRestrictions:
         }
         response = unverified_client.post("/api/bikes/", payload)
         assert response.status_code == 403
+        assert "Email verification required".lower() in str(response.data).lower()

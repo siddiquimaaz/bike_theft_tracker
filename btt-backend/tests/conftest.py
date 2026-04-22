@@ -127,7 +127,7 @@ def sample_report(db, sample_bike, owner_user):
         reported_by=owner_user,
         theft_date=date.today(),
         theft_city="Karachi",
-        status="stolen",
+        status="new_case",
     )
 
 

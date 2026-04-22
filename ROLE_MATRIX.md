@@ -2,6 +2,8 @@
 
 This document defines what each role should be able to do in the Bike Theft Tracker system and serves as the reference for backend RBAC and frontend route exposure.
 
+Operational reset/start procedures are documented in `RESET_RUNBOOK.md`.
+
 ## Roles
 
 - `admin`: governance, oversight, user management

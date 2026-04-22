@@ -4,6 +4,8 @@ React + Vite + Tailwind CSS frontend for the BTT REST API backend.
 
 **Group 58 | Batch 2022F | BS Computer Science | SSUET, Karachi**
 
+For full system reset/start instructions across backend + DB + frontend, see `..\RESET_RUNBOOK.md`.
+
 ## Stack
 
 | Layer | Technology |

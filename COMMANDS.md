@@ -6,6 +6,12 @@
 
 ---
 
+## Demo Reset Guide
+
+For the complete reset checklist (stop everything, flush DB, migrate, restart), see `RESET_RUNBOOK.md`.
+
+---
+
 ## Table of Contents
 
 1. [Daily Startup](#1-daily-startup)
@@ -32,6 +38,12 @@
 start.bat
 ```
 This kills existing processes on ports 8000/3000, stops PostgreSQL, restarts everything cleanly, then opens both servers.
+
+### One-command full reset + start (for demos)
+```bat
+reset_and_start.bat
+```
+This fully flushes DB data, reapplies migrations, optionally creates superuser/demo data, and starts backend+frontend.
 
 ### Manual start (if start.bat has issues)
 

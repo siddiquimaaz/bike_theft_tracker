@@ -64,15 +64,35 @@ class Bike(models.Model):
 
     @property
     def is_stolen(self):
+        from apps.reports.models import TheftReport
+
         return self.theft_reports.filter(
-            status__in=["stolen", "under_investigation"],
+            status__in=[
+                TheftReport.Status.STOLEN,
+                TheftReport.Status.UNDER_INVESTIGATION,
+                TheftReport.Status.NEW_CASE,
+                TheftReport.Status.UNDER_REVIEW,
+                TheftReport.Status.ACTIVE_INVESTIGATION,
+                TheftReport.Status.BIKE_LOCATED,
+                TheftReport.Status.PENDING_VERIFICATION,
+            ],
             deleted_at__isnull=True,
         ).exists()
 
     @property
     def active_theft_report(self):
+        from apps.reports.models import TheftReport
+
         return self.theft_reports.filter(
-            status__in=["stolen", "under_investigation"],
+            status__in=[
+                TheftReport.Status.STOLEN,
+                TheftReport.Status.UNDER_INVESTIGATION,
+                TheftReport.Status.NEW_CASE,
+                TheftReport.Status.UNDER_REVIEW,
+                TheftReport.Status.ACTIVE_INVESTIGATION,
+                TheftReport.Status.BIKE_LOCATED,
+                TheftReport.Status.PENDING_VERIFICATION,
+            ],
             deleted_at__isnull=True,
         ).first()
 

@@ -88,6 +88,8 @@ class SightingListSerializer(serializers.ModelSerializer):
             "sighting_latitude", "sighting_longitude",
             "sighting_description", "photo_url",
             "is_verified", "verified_by_id",
+            "owner_confirmation_status", "owner_response_deadline",
+            "auto_escalated", "is_archived",
             "created_at",
         ]
 
@@ -207,12 +209,45 @@ def verify_sighting(request, pk):
     })
 
 
+@api_view(["PUT"])
+@permission_classes([IsAnyAuthenticatedRole])
+def owner_confirm_sighting(request, pk):
+    """
+    PUT /api/sightings/{id}/owner-confirm/
+    Owner (of top_match_bike) replies: Yes / No / Not Sure
+    """
+    try:
+        sighting = SightingReport.objects.get(pk=pk)
+    except SightingReport.DoesNotExist:
+        return Response({"error": "Sighting not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    if not sighting.top_match_bike:
+        return Response({"error": "No top match available for this sighting."}, status=status.HTTP_400_BAD_REQUEST)
+
+    owner = sighting.top_match_bike.owner
+    if request.user != owner:
+        return Response({"error": "Only the bike owner can respond to this handshake."}, status=status.HTTP_403_FORBIDDEN)
+
+    resp = (request.data.get("response") or "").lower()
+    if resp not in ("yes", "no", "not_sure"):
+        return Response({"error": "Invalid response. Must be 'yes', 'no', or 'not_sure'."}, status=status.HTTP_400_BAD_REQUEST)
+
+    from apps.notifications.notification_service import notify_owner_response
+    try:
+        notify_owner_response(sighting, resp, request.user)
+    except Exception as exc:
+        logger.error("Failed to handle owner response: %s", exc)
+        return Response({"error": "Failed to record response."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    return Response({"message": "Response recorded."})
+
+
 # ─── Notification helpers ──────────────────────────────────────────────────────
 
 def _notify_sighting_submitted(sighting):
-    from apps.notifications.notification_service import notify_sighting_submitted
+    from apps.notifications.notification_service import notify_sighting_submitted_extended
     try:
-        notify_sighting_submitted(sighting)
+        notify_sighting_submitted_extended(sighting)
     except Exception as exc:
         logger.error("Failed to send sighting submitted notification: %s", exc)
 

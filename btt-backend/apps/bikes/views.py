@@ -89,6 +89,11 @@ class StolenBikeListView(generics.ListAPIView):
             status__in=[
                 TheftReport.Status.STOLEN,
                 TheftReport.Status.UNDER_INVESTIGATION,
+                TheftReport.Status.NEW_CASE,
+                TheftReport.Status.UNDER_REVIEW,
+                TheftReport.Status.ACTIVE_INVESTIGATION,
+                TheftReport.Status.BIKE_LOCATED,
+                TheftReport.Status.PENDING_VERIFICATION,
             ],
             deleted_at__isnull=True,
         )
@@ -154,7 +159,15 @@ def city_report_count(request, city):
 
     count = TheftReport.objects.filter(
         theft_city__iexact=city,
-        status__in=["stolen", "under_investigation"],
+        status__in=[
+            TheftReport.Status.STOLEN,
+            TheftReport.Status.UNDER_INVESTIGATION,
+            TheftReport.Status.NEW_CASE,
+            TheftReport.Status.UNDER_REVIEW,
+            TheftReport.Status.ACTIVE_INVESTIGATION,
+            TheftReport.Status.BIKE_LOCATED,
+            TheftReport.Status.PENDING_VERIFICATION,
+        ],
         deleted_at__isnull=True,
     ).count()
 

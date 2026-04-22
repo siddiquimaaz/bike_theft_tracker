@@ -71,6 +71,7 @@ class TheftReportListSerializer(serializers.ModelSerializer):
         fields = [
             "id", "reference_number", "bike_info", "theft_date",
             "theft_city", "fir_number", "status", "has_recovery",
+            "owner_recovery_confirmed", "owner_recovery_confirmed_at",
             "created_at", "updated_at",
         ]
 
@@ -92,12 +93,13 @@ class TheftReportDetailSerializer(TheftReportListSerializer):
     theft_latitude = serializers.SerializerMethodField()
     theft_longitude = serializers.SerializerMethodField()
     recovery = serializers.SerializerMethodField()
+    timeline = serializers.SerializerMethodField()
 
     class Meta(TheftReportListSerializer.Meta):
         fields = TheftReportListSerializer.Meta.fields + [
             "theft_latitude", "theft_longitude",
             "theft_location_detail", "description",
-            "recovery",
+            "recovery", "timeline",
         ]
 
     def get_theft_latitude(self, obj):
@@ -110,6 +112,19 @@ class TheftReportDetailSerializer(TheftReportListSerializer):
         if hasattr(obj, "recovery"):
             return RecoveryRecordSerializer(obj.recovery).data
         return None
+
+    def get_timeline(self, obj):
+        events = obj.timeline.select_related("actor").order_by("created_at")
+        return [
+            {
+                "id": event.id,
+                "action": event.action,
+                "created_at": event.created_at,
+                "metadata": event.metadata or {},
+                "actor_name": event.actor.full_name if event.actor else None,
+            }
+            for event in events
+        ]
 
 
 class StatusUpdateSerializer(serializers.Serializer):

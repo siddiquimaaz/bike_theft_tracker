@@ -1,17 +1,29 @@
 import { useState } from 'react';
 import { useFetch }   from '../../hooks/useFetch';
-import { getReports } from '../../api/reportApi';
+import { getReports, getReport } from '../../api/reportApi';
 import { Button, Modal, EmptyState, Spinner } from '../../components/UI';
 import Badge  from '../../components/UI/Badge';
 import ReportForm from '../../components/forms/ReportForm';
 import { STATUS_COLORS, STATUS_LABELS } from '../../utils/constants';
 import { formatDate } from '../../utils/formatters';
+import CaseTimeline from '../../components/timeline/CaseTimeline';
 
 export default function ReportsPage() {
   const { data, loading, refetch } = useFetch(getReports, []);
   const reports = data?.results ?? data ?? [];
   const [showFile, setShowFile] = useState(false);
   const [detail,   setDetail]   = useState(null);
+  const [loadingDetail, setLoadingDetail] = useState(false);
+
+  async function openDetail(reportId) {
+    setLoadingDetail(true);
+    try {
+      const { data } = await getReport(reportId);
+      setDetail(data);
+    } finally {
+      setLoadingDetail(false);
+    }
+  }
 
   return (
     <div>
@@ -34,7 +46,7 @@ export default function ReportsPage() {
                 </tr></thead>
                 <tbody>
                   {reports.map((r) => (
-                    <tr key={r.id} className="cursor-pointer" onClick={() => setDetail(r)}>
+                    <tr key={r.id} className="cursor-pointer" onClick={() => openDetail(r.id)}>
                       <td><span className="mono text-primary">#{r.id}</span></td>
                       <td>
                         <div className="text-xs text-muted">{r.bike_info?.make ?? ''} {r.bike_info?.model ?? ''}</div>
@@ -57,6 +69,7 @@ export default function ReportsPage() {
         </Modal>
       )}
 
+      {loadingDetail && <Spinner />}
       {detail && (
         <Modal title={`Report #${detail.id} — ${detail.reference_number ?? ''}`} onClose={() => setDetail(null)}>
           <Badge variant={STATUS_COLORS[detail.status] ?? 'gray'} className="mb-4">{STATUS_LABELS[detail.status] ?? detail.status}</Badge>
@@ -74,6 +87,7 @@ export default function ReportsPage() {
               ))}
             </tbody>
           </table>
+          <CaseTimeline events={detail.timeline ?? []} />
         </Modal>
       )}
     </div>

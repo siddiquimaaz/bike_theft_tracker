@@ -57,7 +57,7 @@ class SightingReport(models.Model):
         help_text="UUID filename of sighting photo stored in /media/sightings/"
     )
 
-    # Verification
+    # Verification & owner handshake
     is_verified = models.BooleanField(
         default=False,
         help_text="FALSE = unverified community report. TRUE = authority confirmed."
@@ -69,6 +69,23 @@ class SightingReport(models.Model):
         related_name="verified_sightings",
         limit_choices_to={"role": "authority"},
     )
+
+    # New fields for owner verification handshake / escalation
+    is_archived = models.BooleanField(default=False)
+    owner_confirmation_status = models.CharField(
+        max_length=12,
+        choices=[
+            ("pending", "Pending"),
+            ("yes", "Yes"),
+            ("no", "No"),
+            ("not_sure", "Not Sure"),
+        ],
+        default="pending",
+        help_text="Owner handshake status for top_match_bike owner confirmation",
+    )
+    owner_notified_at = models.DateTimeField(null=True, blank=True)
+    owner_response_deadline = models.DateTimeField(null=True, blank=True)
+    auto_escalated = models.BooleanField(default=False)
 
     created_at = models.DateTimeField(default=timezone.now)
 

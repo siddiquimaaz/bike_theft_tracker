@@ -19,7 +19,14 @@ class IsOwner(IsVerifiedUser):
     message = "This endpoint is restricted to Bike Owners."
 
     def has_permission(self, request, view):
-        return super().has_permission(request, view) and request.user.is_owner
+        if not super().has_permission(request, view):
+            if getattr(request, "user", None) and request.user.is_authenticated and not request.user.is_verified:
+                self.message = IsVerifiedUser.message
+            return False
+        if not request.user.is_owner:
+            self.message = "This endpoint is restricted to Bike Owners."
+            return False
+        return True
 
 
 class IsAuthority(IsVerifiedUser):

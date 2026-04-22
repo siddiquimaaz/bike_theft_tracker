@@ -50,6 +50,7 @@ def _resolve_geos_library_path():
 SECRET_KEY = os.getenv("SECRET_KEY", "INSECURE-CHANGE-ME")
 DEBUG = os.getenv("DEBUG", "False") == "True"
 ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
+LOCAL_DEV_MODE = os.getenv("LOCAL_DEV_MODE", "False") == "True"
 
 # ─── Apps ─────────────────────────────────────────────────────────────────────
 INSTALLED_APPS = [
@@ -198,9 +199,12 @@ SIMPLE_JWT = {
 # Use SMTP only when real credentials are present; fall back to console so that
 # missing/empty EMAIL_HOST_USER / EMAIL_HOST_PASSWORD never causes a connection
 # hang or authentication error that bleeds into notification daemon threads.
-_smtp_configured = bool(
-    os.getenv("EMAIL_HOST_USER", "").strip()
-    and os.getenv("EMAIL_HOST_PASSWORD", "").strip()
+# For testing/prototype runs, set DISABLE_SMTP=True in your environment to force
+# console backend even if SMTP credentials exist.
+_disable_smtp_env = os.getenv("DISABLE_SMTP", "False") == "True" or LOCAL_DEV_MODE
+_smtp_configured = (
+    bool(os.getenv("EMAIL_HOST_USER", "").strip() and os.getenv("EMAIL_HOST_PASSWORD", "").strip())
+    and not _disable_smtp_env
 )
 EMAIL_BACKEND = (
     "django.core.mail.backends.smtp.EmailBackend"
@@ -260,3 +264,8 @@ ML_FUZZY_HIGH_THRESHOLD = 85
 ML_FUZZY_MEDIUM_THRESHOLD = 70
 ML_HOTSPOT_LOOKBACK_DAYS = 180  # 6 months
 ML_MIN_RECORDS_FOR_CLUSTERING = 10
+
+# Workflow automation thresholds
+OWNER_ALERT_THRESHOLD = int(os.getenv("OWNER_ALERT_THRESHOLD", 70))
+PHOTO_HIGH_CONFIDENCE_THRESHOLD = int(os.getenv("PHOTO_HIGH_CONFIDENCE_THRESHOLD", 85))
+SIGHTING_OWNER_RESPONSE_HOURS = int(os.getenv("SIGHTING_OWNER_RESPONSE_HOURS", 24))

@@ -5,6 +5,7 @@ Authentication endpoints — public and semi-public.
 import uuid
 import logging
 import threading
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 from datetime import timedelta
@@ -113,15 +114,16 @@ def register(request):
         daemon=True,
     ).start()
 
-    return Response(
-        {
-            "id": user.id,
-            "email": user.email,
-            "role": user.role,
-            "message": "Registration successful. Please verify your email before logging in.",
-        },
-        status=status.HTTP_201_CREATED,
-    )
+    payload = {
+        "id": user.id,
+        "email": user.email,
+        "role": user.role,
+        "message": "Registration successful. Please verify your email before logging in.",
+    }
+    if settings.LOCAL_DEV_MODE:
+        payload["verification_token"] = str(user.email_verification_token)
+        payload["verification_url"] = f"/api/auth/verify-email/{user.email_verification_token}/"
+    return Response(payload, status=status.HTTP_201_CREATED)
 
 
 @api_view(["POST"])

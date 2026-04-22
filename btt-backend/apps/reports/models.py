@@ -12,8 +12,13 @@ from django.utils import timezone
 
 class TheftReport(models.Model):
     class Status(models.TextChoices):
-        STOLEN = "stolen", "Stolen"
-        UNDER_INVESTIGATION = "under_investigation", "Under Investigation"
+        STOLEN = "stolen", "Stolen (Legacy)"
+        UNDER_INVESTIGATION = "under_investigation", "Under Investigation (Legacy)"
+        NEW_CASE = "new_case", "New Case"
+        UNDER_REVIEW = "under_review", "Under Review"
+        ACTIVE_INVESTIGATION = "active_investigation", "Active Investigation"
+        BIKE_LOCATED = "bike_located", "Bike Located"
+        PENDING_VERIFICATION = "pending_verification", "Pending Verification"
         RECOVERED = "recovered", "Recovered"
         CLOSED = "closed", "Closed"
 
@@ -52,8 +57,26 @@ class TheftReport(models.Model):
     status = models.CharField(
         max_length=30,
         choices=Status.choices,
-        default=Status.STOLEN,
+        default=Status.NEW_CASE,
     )
+    owner_recovery_confirmed = models.BooleanField(
+        default=False,
+        help_text="Owner must confirm pickup/receipt before final case closure.",
+    )
+    owner_recovery_confirmed_at = models.DateTimeField(null=True, blank=True)
+    owner_recovery_confirmed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="confirmed_recoveries",
+        limit_choices_to={"role": "owner"},
+    )
+    authority_last_action_at = models.DateTimeField(
+        default=timezone.now,
+        help_text="Used for stale-case automation and reminders.",
+    )
+    stale_escalated_at = models.DateTimeField(null=True, blank=True)
 
     # Timestamps & soft delete
     created_at = models.DateTimeField(default=timezone.now)
@@ -77,11 +100,21 @@ class TheftReport(models.Model):
     def transition_status(self, new_status: str, changed_by):
         """
         Enforce valid state transitions:
-        stolen → under_investigation → recovered → closed
+        new_case -> under_review -> active_investigation -> bike_located
+        -> pending_verification -> recovered -> closed
         """
         valid_transitions = {
             self.Status.STOLEN: [self.Status.UNDER_INVESTIGATION, self.Status.CLOSED],
             self.Status.UNDER_INVESTIGATION: [self.Status.RECOVERED, self.Status.CLOSED],
+            self.Status.NEW_CASE: [
+                self.Status.UNDER_REVIEW,
+                self.Status.UNDER_INVESTIGATION,  # Legacy client compatibility
+                self.Status.CLOSED,
+            ],
+            self.Status.UNDER_REVIEW: [self.Status.ACTIVE_INVESTIGATION, self.Status.CLOSED],
+            self.Status.ACTIVE_INVESTIGATION: [self.Status.BIKE_LOCATED, self.Status.CLOSED],
+            self.Status.BIKE_LOCATED: [self.Status.PENDING_VERIFICATION, self.Status.CLOSED],
+            self.Status.PENDING_VERIFICATION: [self.Status.RECOVERED, self.Status.CLOSED],
             self.Status.RECOVERED: [self.Status.CLOSED],
             self.Status.CLOSED: [],
         }
@@ -92,7 +125,8 @@ class TheftReport(models.Model):
             )
         old_status = self.status
         self.status = new_status
-        self.save(update_fields=["status", "updated_at"])
+        self.authority_last_action_at = timezone.now()
+        self.save(update_fields=["status", "updated_at", "authority_last_action_at"])
         return old_status
 
 
@@ -151,3 +185,27 @@ class RecoveryRecord(models.Model):
 
     def __str__(self):
         return f"Recovery for Report #{self.theft_report_id} — {self.recovery_date}"
+
+
+class CaseTimeline(models.Model):
+    theft_report = models.ForeignKey(
+        TheftReport,
+        on_delete=models.CASCADE,
+        related_name="timeline",
+    )
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+    action = models.CharField(max_length=100)
+    metadata = models.JSONField(default=dict, null=True, blank=True)
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = "case_timeline"
+        ordering = ["created_at"]
+
+    def __str__(self):
+        return f"Timeline: {self.theft_report_id} — {self.action} @ {self.created_at}"
