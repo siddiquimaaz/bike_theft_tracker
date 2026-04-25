@@ -9,6 +9,8 @@ from apps.users.views.auth_views import (
     forgot_password,
     reset_password,
     logout,
+    check_email,
+    check_cnic,
 )
 
 urlpatterns = [
@@ -19,4 +21,7 @@ urlpatterns = [
     path("forgot-password/", forgot_password, name="auth-forgot-password"),
     path("reset-password/<uuid:token>/", reset_password, name="auth-reset-password"),
     path("logout/", logout, name="auth-logout"),
+    # Pre-submit availability checks (used by register form for inline validation)
+    path("check-email/", check_email, name="auth-check-email"),
+    path("check-cnic/", check_cnic, name="auth-check-cnic"),
 ]

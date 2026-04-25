@@ -2,11 +2,14 @@
 apps/users/views/auth_views.py
 Authentication endpoints — public and semi-public.
 """
+import re
 import uuid
 import logging
 import threading
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.core.validators import validate_email as django_validate_email
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.utils import timezone
 from datetime import timedelta
 from rest_framework import status
@@ -24,6 +27,8 @@ from apps.users.serializers import (
     PasswordResetRequestSerializer,
     PasswordResetConfirmSerializer,
 )
+
+CNIC_DIGITS_PATTERN = re.compile(r"^\d{13}$")
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -72,6 +77,13 @@ class BTTTokenObtainPairSerializer(TokenObtainPairSerializer):
 
     def validate(self, attrs):
         data = super().validate(attrs)
+        # Block login for unverified accounts so users can't obtain JWTs
+        # that will immediately fail RBAC checks on owner/authority/admin endpoints.
+        if not getattr(self.user, "is_verified", False):
+            from rest_framework.exceptions import AuthenticationFailed
+            raise AuthenticationFailed(
+                "Email verification required before logging in."
+            )
         # Also return user info alongside tokens so the frontend
         # can populate its auth context without decoding the JWT.
         data["user"] = {
@@ -236,6 +248,82 @@ def logout(request):
         return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
     return Response({"message": "Logged out successfully."})
+
+
+# ─── Pre-submit availability checks ───────────────────────────────────────────
+#
+# Lightweight GET endpoints used by the register form to validate email and
+# CNIC inline (onBlur) before the user hits submit. They are cheap — one indexed
+# `.exists()` query each — and do not reveal any user data.
+#
+# Security notes:
+#   - AnonRateThrottle('anon_check') caps enumeration attempts per IP.
+#   - Response shape is intentionally boolean so we do NOT leak whether an
+#     email/CNIC belongs to an owner vs. an authority, only that it is taken.
+#   - Input normalisation mirrors the registration serializer (lowercasing
+#     email, stripping CNIC hyphens) so the precheck matches the real check.
+
+
+class AvailabilityCheckThrottle(AnonRateThrottle):
+    scope = "availability_check"
+
+
+@api_view(["GET"])
+@permission_classes([AllowAny])
+@throttle_classes([AvailabilityCheckThrottle])
+def check_email(request):
+    """
+    GET /api/auth/check-email/?email=you@example.com
+    Returns {available, valid_format, reason}.
+    """
+    raw = (request.query_params.get("email") or "").strip().lower()
+    if not raw:
+        return Response(
+            {"available": False, "valid_format": False, "reason": "Email is required."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    try:
+        django_validate_email(raw)
+    except DjangoValidationError:
+        return Response(
+            {"available": False, "valid_format": False, "reason": "Invalid email format."}
+        )
+
+    taken = User.objects.filter(email__iexact=raw).exists()
+    return Response({
+        "available": not taken,
+        "valid_format": True,
+        "reason": "Email already registered." if taken else "Available.",
+    })
+
+
+@api_view(["GET"])
+@permission_classes([AllowAny])
+@throttle_classes([AvailabilityCheckThrottle])
+def check_cnic(request):
+    """
+    GET /api/auth/check-cnic/?cnic=4200012345678
+    Returns {available, valid_format, reason}.
+    Hyphens and spaces are stripped before validation so the client may send
+    either '42000-1234567-8' or '4200012345678'.
+    """
+    raw = (request.query_params.get("cnic") or "").replace("-", "").replace(" ", "")
+    if not raw:
+        return Response(
+            {"available": False, "valid_format": False, "reason": "CNIC is required."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if not CNIC_DIGITS_PATTERN.match(raw):
+        return Response(
+            {"available": False, "valid_format": False, "reason": "CNIC must be exactly 13 digits."}
+        )
+
+    taken = User.objects.filter(cnic=raw).exists()
+    return Response({
+        "available": not taken,
+        "valid_format": True,
+        "reason": "CNIC already registered." if taken else "Available.",
+    })
 
 
 # ─── Email helpers ────────────────────────────────────────────────────────────

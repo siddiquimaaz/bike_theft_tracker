@@ -17,3 +17,4 @@ pytest-cov==4.1.0
 factory-boy==3.3.0
 python-dotenv==1.0.0
 gunicorn==21.2.0
+reportlab==4.4.10  # used by build_techdoc_pdf.py to generate BTT_Technical_Documentation.pdf

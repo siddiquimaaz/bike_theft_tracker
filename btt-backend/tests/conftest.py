@@ -9,6 +9,132 @@ from rest_framework.test import APIClient
 User = get_user_model()
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# PostgreSQL session-leak prevention
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# Symptom:
+#   OperationalError: database "test_bikethefttracker" is being accessed by
+#   other users  DETAIL: There are N other sessions using the database.
+#
+# Root cause:
+#   Views dispatch notifications via threading.Thread(daemon=True).  Each daemon
+#   thread opens its own psycopg connection through Django's thread-local
+#   `django.db.connection`.  Daemon threads are never explicitly joined, so
+#   those connections outlive the test.  When pytest-django tries to run
+#   destroy_test_db() → DROP DATABASE at session end, PostgreSQL refuses because
+#   those sessions are still present in pg_stat_activity.
+#
+# Fix layer 1 — CONN_MAX_AGE=0  (module-level, runs before any connection)
+# ─────────────────────────────────────────────────────────────────────────────
+# Django maintains a per-thread connection pool.  With CONN_MAX_AGE != 0
+# (the default can be None = unlimited), connections are reused across
+# "requests" and never voluntarily closed by Django.  Setting it to 0 tells
+# Django to close the connection at the end of every request/response cycle.
+# Applied here at module-load time so it is in effect before the very first
+# CREATE DATABASE call.
+from django.conf import settings as _django_settings
+
+for _db_alias in list(_django_settings.DATABASES):
+    _django_settings.DATABASES[_db_alias]["CONN_MAX_AGE"] = 0
+
+del _db_alias, _django_settings
+
+
+# ─── Fix layer 2 — Synchronous thread executor  (function-scoped, autouse) ───
+#
+# WHY THIS IS THE ROOT-CAUSE FIX
+# Each threading.Thread opens a brand-new thread-local psycopg session.
+# Making threads synchronous means the "thread" target runs in the *same*
+# OS thread as the test, therefore it reuses the test thread's existing
+# django.db.connection — the one pytest-django has already wrapped in a
+# SAVEPOINT.  No new psycopg session is created, nothing leaks.
+#
+# SECONDARY BENEFIT
+# Notification assertions become deterministic: no time.sleep() needed
+# because the target has completed before start() returns.
+#
+# SAFETY
+# monkeypatch is function-scoped, so threading.Thread is restored automatically
+# after every single test — no manual cleanup required, no cross-test pollution.
+
+@pytest.fixture(autouse=True)
+def _sync_background_threads(monkeypatch):
+    """Replace threading.Thread with a synchronous in-process executor."""
+    import threading
+
+    class _SyncThread:
+        """
+        Drop-in replacement for threading.Thread.
+
+        start() runs the target callable immediately in the calling thread
+        instead of spawning a new OS thread.  join() is a no-op because
+        execution has already completed.
+        """
+
+        def __init__(
+            self,
+            target=None,
+            args=(),
+            kwargs=None,
+            *,
+            daemon=None,
+            group=None,
+            name=None,
+        ):
+            self._target = target
+            self._args = args
+            self._kwargs = kwargs or {}
+
+        def start(self):
+            if self._target:
+                self._target(*self._args, **self._kwargs)
+
+        def join(self, timeout=None):
+            pass  # Already ran synchronously in start().
+
+        # Provide daemon attribute so code that reads/sets it doesn't break.
+        @property
+        def daemon(self):
+            return False
+
+        @daemon.setter
+        def daemon(self, value):
+            pass  # No-op — there is no real thread to configure.
+
+    monkeypatch.setattr(threading, "Thread", _SyncThread)
+
+
+# ─── Fix layer 3 — Session-end connection flush  (session-scoped, autouse) ───
+#
+# Belt-and-suspenders: close every Django connection wrapper immediately before
+# pytest-django calls destroy_test_db().
+#
+# WHY THE ORDERING IS GUARANTEED
+# This fixture explicitly depends on `django_db_setup` (pytest-django's
+# session-scoped fixture that owns create_test_db / destroy_test_db).
+# pytest finalises fixtures in *reverse dependency order*:
+#
+#   setup order:   django_db_setup  →  _close_db_connections_before_drop
+#   teardown order: _close_db_connections_before_drop  →  django_db_setup
+#
+# Our `yield` continuation (connections.close_all) therefore always runs
+# BEFORE django_db_setup tears down and issues DROP DATABASE.
+#
+# This catches anything that slipped past layer 2 — management commands,
+# third-party signal handlers, or any direct use of django.db.connection
+# outside of a threading.Thread call.
+
+@pytest.fixture(scope="session", autouse=True)
+def _close_db_connections_before_drop(django_db_setup):
+    """Close all Django DB wrappers before destroy_test_db() is called."""
+    yield
+    from django.db import connections
+
+    for conn in connections.all():
+        conn.close()
+
+
 # ─── User Fixtures ────────────────────────────────────────────────────────────
 
 @pytest.fixture

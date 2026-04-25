@@ -238,7 +238,14 @@ def owner_confirm_sighting(request, pk):
 
     owner = sighting.top_match_bike.owner
     if request.user != owner:
-        return Response({"error": "Only the bike owner can respond to this handshake."}, status=status.HTTP_403_FORBIDDEN)
+        return Response({"error": "Sighting not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    # Block duplicate definitive responses
+    if sighting.owner_confirmation_status in ("yes", "no"):
+        return Response(
+            {"error": "You have already responded to this sighting."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
 
     resp = (request.data.get("response") or "").lower()
     if resp not in ("yes", "no", "not_sure"):

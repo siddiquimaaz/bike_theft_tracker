@@ -178,6 +178,7 @@ REST_FRAMEWORK = {
         "login": "5/15min",
         "report_submit": "10/hour",
         "ml_endpoints": "30/15min",
+        "availability_check": "30/min",
     },
 }
 
