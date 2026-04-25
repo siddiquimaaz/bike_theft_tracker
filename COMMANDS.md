@@ -508,6 +508,8 @@ All authenticated endpoints require: `Authorization: Bearer <access_token>`
 | GET | `/api/auth/verify-email/<uuid>/` | Public | Activate account via email link |
 | POST | `/api/auth/forgot-password/` | Public | Send password reset email |
 | POST | `/api/auth/reset-password/<uuid>/` | Public | Set new password |
+| POST | `/api/auth/check-email/` | Public | Availability check (throttled 30/min) |
+| POST | `/api/auth/check-cnic/` | Public | Availability check (throttled 30/min) |
 | POST | `/api/auth/logout/` | Auth | Blacklist refresh token |
 
 **Login request body:**
@@ -587,6 +589,8 @@ All authenticated endpoints require: `Authorization: Bearer <access_token>`
 | PATCH | `/api/reports/<id>/status/` | Authority | Update status |
 | POST | `/api/reports/<id>/recovery/` | Authority | Add recovery record |
 | GET | `/api/reports/<id>/recovery/` | Authority / Owner | View recovery record |
+| PUT | `/api/reports/<id>/recovery/` | Authority | Amend recovery record |
+| PUT | `/api/reports/<id>/recovery/confirm/` | Owner | Confirm pickup → closes case (`pending_verification`/`recovered` → `closed`) |
 
 **File theft report request body:**
 ```json
@@ -603,7 +607,10 @@ All authenticated endpoints require: `Authorization: Bearer <access_token>`
 ```json
 { "status": "under_investigation" }
 ```
-Status flow: `stolen` → `under_investigation` → `recovered` → `closed`
+Status flow (modern lifecycle):
+`new_case` → `under_review` → `active_investigation` → `bike_located` → `pending_verification` → `recovered` → `closed`
+
+Legacy values (`stolen`, `under_investigation`) remain accepted for backwards compatibility on older reports. See `VERIFIED_DEMO_FLOW.md` for the full state machine and which transitions are allowed at each step.
 
 **Add recovery record (Authority):**
 ```json
@@ -625,6 +632,7 @@ Status flow: `stolen` → `under_investigation` → `recovered` → `closed`
 | POST | `/api/sightings/` | Community / Auth | Submit a sighting |
 | GET | `/api/sightings/<id>/` | Authority | Sighting details + fuzzy match results |
 | POST | `/api/sightings/<id>/verify/` | Authority | Confirm match and link to a bike |
+| PUT | `/api/sightings/<id>/owner-confirm/` | Owner | Owner handshake response: `yes` / `no` / `not_sure` |
 
 **Submit sighting request body:**
 ```json
@@ -897,7 +905,7 @@ cd btt-backend
 ```
 
 ```cmd
-:: Run all tests (241 tests, requires 80% coverage to pass)
+:: Run all tests (341 tests, requires 80% coverage to pass)
 pytest
 
 :: Run with short traceback (faster output)
@@ -949,6 +957,11 @@ npx playwright test e2e/authority.spec.js
 npx playwright test e2e/admin.spec.js
 npx playwright test e2e/community.spec.js
 npx playwright test e2e/api-connectivity.spec.js
+
+:: Full six-event cross-role demo narrative (mirrors the backend
+:: TestEndToEndDemoNarrative integration test). Long-running — opt in
+:: before a presentation, not on every commit.
+npx playwright test tests/e2e/demo_narrative.spec.js
 
 :: Run in headed mode (see the browser)
 npx playwright test --headed

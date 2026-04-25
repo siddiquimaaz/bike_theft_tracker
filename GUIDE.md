@@ -77,7 +77,7 @@ API is live at: **http://localhost:8000/api/**
 python -m pytest tests/
 ```
 
-Expected: **241 tests, 80%+ coverage**.
+Expected: **341 tests, 80%+ coverage**.
 
 ### Step 5 — Stop PostgreSQL when done
 

@@ -4,6 +4,8 @@ This schema reflects the current Django models and migrations after:
 - `reports.0003_theftreport_authority_last_action_at_and_more`
 - `sightings.0003_sightingreport_auto_escalated_and_more`
 - `notifications.0004_notification_metadata_notification_sighting_and_more`
+- `users.0002_audit_log_immutability` — REVOKEs `UPDATE, DELETE` on `audit_logs`
+  from the `bttadmin` role for forensic integrity (see `audit_logs` notes below)
 
 For full reset/run instructions (services, DB flush, migrations, restart), see `..\RESET_RUNBOOK.md`.
 
@@ -114,6 +116,14 @@ For full reset/run instructions (services, DB flush, migrations, restart), see `
 - `old_value` (JSON), `new_value` (JSON)
 - `ip_address`
 - `created_at`
+- **Append-only at the DB level**: migration `users.0002_audit_log_immutability`
+  REVOKEs `UPDATE` and `DELETE` privileges on this table from the `bttadmin`
+  role (the role used by the running app). The application layer already has
+  no UPDATE/DELETE call sites — the migration removes the privilege so a
+  compromised credential or hand-crafted SQL session cannot tamper with the
+  trail. The `reverse_sql` GRANTs the privileges back, both wrapped in a
+  `pg_roles` existence check so CI (which connects as a superuser, exempt
+  from REVOKE) is unaffected.
 
 ## Main Relationships
 

@@ -73,6 +73,27 @@ src/
 | authority | `/authority/dashboard` |
 | admin | `/admin/dashboard` |
 
+## End-to-End Tests (Playwright)
+
+Per-role smoke specs live under `e2e/` (`auth.spec.js`, `owner.spec.js`,
+`authority.spec.js`, `admin.spec.js`, `community.spec.js`,
+`api-connectivity.spec.js`). Run them with `npx playwright test` once the
+backend (port 8000) and frontend (port 3000) are both up and demo users
+have been seeded (`python manage.py create_demo_users`).
+
+A separate **full demo-narrative** spec at
+`tests/e2e/demo_narrative.spec.js` exercises all six cross-role events in
+order (owner reports → community sights → owner handshake → authority
+escalation → recovery → owner pickup confirmation → community closure
+broadcast). It mirrors the backend
+`tests/test_inter_role_sync.py::TestEndToEndDemoNarrative` integration
+test and is intended as an opt-in pre-presentation rehearsal — run it
+explicitly with:
+
+```bash
+npx playwright test tests/e2e/demo_narrative.spec.js
+```
+
 ## Phase 4 Enhancements (Not Yet Implemented)
 
 - **Map view** — install `react-leaflet` and render hotspot cluster coordinates

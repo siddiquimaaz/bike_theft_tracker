@@ -292,7 +292,7 @@ If using `seed_demo_data`:
 - Sighting handshake and escalation behavior is observable.
 - Recovery confirm closes case and triggers contributor closure notifications.
 - Admin visibility into analytics/audit is available.
-- 270 tests passing at 90.15% coverage.
+- 341 tests passing (backend pytest suite, ≥80% coverage gate).
 
 ---
 

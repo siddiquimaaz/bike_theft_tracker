@@ -8,7 +8,7 @@ echo   Bike Theft Tracker — Kill All Ports, Processes ^& Venvs
 echo ============================================================
 echo.
 echo   Ports targeted:  8000 (Django)  3000 (React)
-echo                    5433 (Project PG)  5432 (System PG)
+echo                    5433 (Project PG)  5432 (System PG) 
 echo   NOT touched:     135, 445, 8733, 49664-49670 (Windows system)
 echo ============================================================
 echo.

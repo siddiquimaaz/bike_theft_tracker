@@ -92,7 +92,7 @@ cp .env.example .env
 ### 5. Django Setup
 
 ```bash
-python manage.py migrate          # Creates all 8 tables + PostGIS setup
+python manage.py migrate          # Creates all 9 tables + PostGIS setup + audit-log REVOKE
 python manage.py createsuperuser  # Initial admin account
 python manage.py collectstatic
 ```
@@ -133,7 +133,7 @@ pytest tests/test_fuzzy_match.py -v   # Fuzzy match accuracy
 pytest --cov=apps --cov-report=html   # HTML coverage report
 ```
 
-**Minimum coverage target: 80%**
+**Minimum coverage target: 80%** — current backend suite: **341 tests** passing.
 
 ---
 
@@ -149,6 +149,8 @@ pytest --cov=apps --cov-report=html   # HTML coverage report
 | POST | `/verify-email/{token}/` | Public | Email verification (24h expiry) |
 | POST | `/forgot-password/` | Public | Send reset link |
 | POST | `/reset-password/{token}/` | Public | Set new password |
+| POST | `/check-email/` | Public | Availability check (throttled 30/min) |
+| POST | `/check-cnic/` | Public | Availability check (throttled 30/min) |
 | POST | `/logout/` | Auth | Blacklist refresh token |
 
 ### Bikes — `/api/bikes/`
@@ -173,6 +175,7 @@ pytest --cov=apps --cov-report=html   # HTML coverage report
 | POST | `/{id}/recovery/` | Authority | Log recovery |
 | GET | `/{id}/recovery/` | Auth | Recovery details |
 | PUT | `/{id}/recovery/` | Authority | Amend recovery |
+| PUT | `/{id}/recovery/confirm/` | Owner | Confirm pickup → closes case |
 
 ### Sightings — `/api/sightings/`
 
@@ -182,6 +185,7 @@ pytest --cov=apps --cov-report=html   # HTML coverage report
 | GET | `/` | Authority/Admin | Unverified sightings list |
 | GET | `/{id}/` | Auth | Sighting detail |
 | PUT | `/{id}/verify/` | Authority | Verify sighting, notify owner |
+| PUT | `/{id}/owner-confirm/` | Owner | Handshake response: `yes` / `no` / `not_sure` |
 
 ### ML — `/api/ml/`
 
@@ -223,12 +227,26 @@ pytest --cov=apps --cov-report=html   # HTML coverage report
 
 ## Report Status State Machine
 
+Modern lifecycle (current default — exercised by the demo narrative):
+
 ```
-stolen → under_investigation → recovered → closed
-       ↘                                 ↗
-         ────────────────────────────────
-              (direct close allowed)
+new_case → under_review → active_investigation → bike_located
+                                                      ↓
+                                            pending_verification
+                                                      ↓
+                                                  recovered
+                                                      ↓
+                                                    closed
 ```
+
+- Authority drives transitions up to `pending_verification` after logging a `RecoveryRecord`.
+- Owner finalises `pending_verification → closed` via `PUT /api/reports/{id}/recovery/confirm/`.
+- Case closure broadcasts a thank-you to community contributors who submitted matching sightings.
+- Sighting handshake (owner) supports `yes` (URGENT escalation), `no` (sighting archived),
+  `not_sure` (kept open), and missed-deadline auto-escalation.
+
+Legacy values (`stolen`, `under_investigation`) remain accepted for backwards compatibility on
+older reports and continue to round-trip through the API unchanged.
 
 ---
 
@@ -316,7 +334,7 @@ python manage.py run_trend_analytics
 - [x] File uploads: MIME type verified server-side (python-magic), 2MB max
 - [x] Security headers: X-Frame-Options, X-Content-Type-Options, HSTS
 - [x] Soft-deletes only — evidence records are never hard-deleted
-- [x] Immutable audit log — no UPDATE/DELETE on audit_logs table
+- [x] Immutable audit log — no UPDATE/DELETE call sites in `apps/`, plus DB-level enforcement via migration `users.0002_audit_log_immutability` (REVOKE UPDATE/DELETE on `audit_logs` from `bttadmin`)
 - [x] `.env` never committed — `.gitignore` covers it from day one
 
 ---

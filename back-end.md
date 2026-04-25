@@ -16,13 +16,22 @@ This project’s back-end is a **Django 4.2 + Django REST Framework** API that p
 
 - **Theft reports (Owner → Authority workflow)**
   - Owners file theft reports for a registered bike with date/city/location details.
-  - Authorities manage the report lifecycle (status transitions such as *stolen → under_investigation → recovered → closed*).
-  - Recovery details can be recorded and viewed (role-scoped).
+  - Authorities manage the report lifecycle through the modern state machine:
+    *new_case → under_review → active_investigation → bike_located → pending_verification → recovered → closed*.
+    Legacy values (`stolen`, `under_investigation`) remain accepted on older reports for backwards compatibility.
+  - Recovery details can be recorded and viewed (role-scoped); the owner finalises closure via
+    `PUT /api/reports/<id>/recovery/confirm/`, which transitions the case to `closed` and broadcasts a
+    thank-you to community contributors.
 
 - **Sightings + verification (Community/Authority → Authority workflow)**
   - Community/Authority users can submit sightings with partial numbers and location context.
   - Authority users can review sightings, verify a match, and link the sighting to a bike/report.
-  - The system integrates a **fuzzy matching** approach to help identify likely matches from partial/dirty identifiers.
+  - The system integrates a **fuzzy matching** approach (RapidFuzz WRatio) to help identify likely
+    matches from partial/dirty identifiers.
+  - **Owner handshake**: when a sighting hits the owner-alert score, the owner is asked
+    `yes` / `no` / `not_sure`. `yes` triggers an URGENT escalation to authorities;
+    `not_sure` keeps the sighting open and auditable; missed-deadline sightings are
+    auto-escalated by `auto_escalate_pending_owner_responses()`.
 
 - **Notifications (all authenticated roles)**
   - Produces notifications for key events (e.g., status updates, verified sightings).
