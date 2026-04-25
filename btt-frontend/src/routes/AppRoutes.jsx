@@ -12,6 +12,7 @@ import LoginPage          from '../pages/auth/LoginPage';
 import RegisterPage       from '../pages/auth/RegisterPage';
 import ForgotPasswordPage from '../pages/auth/ForgotPasswordPage';
 import ResetPasswordPage  from '../pages/auth/ResetPasswordPage';
+import VerifyEmailPage    from '../pages/auth/VerifyEmailPage';
 
 // Owner pages
 import OwnerDashboard from '../pages/owner/OwnerDashboard';
@@ -56,6 +57,7 @@ export default function AppRoutes() {
         <Route element={<MainLayout />}>
           <Route path="/login"                     element={<LoginPage />} />
           <Route path="/register"                  element={<RegisterPage />} />
+          <Route path="/verify-email/:token"       element={<VerifyEmailPage />} />
           <Route path="/forgot-password"           element={<ForgotPasswordPage />} />
           <Route path="/reset-password/:token"     element={<ResetPasswordPage />} />
         </Route>

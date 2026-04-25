@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { resetPassword } from '../../api/authApi';
-import { Alert, Button } from '../../components/UI';
+import { Alert, Button, PasswordInput } from '../../components/UI';
 
 export default function ResetPasswordPage() {
   const { token } = useParams();
@@ -27,8 +27,8 @@ export default function ResetPasswordPage() {
         <h2 className="font-heading font-semibold text-base text-gray-100 mb-5">Set new password</h2>
         <Alert type="error" message={error} onClose={() => setError('')} />
         <form onSubmit={handleSubmit}>
-          <div className="form-row"><label>New Password</label><input type="password" placeholder="Min 8 chars" value={form.password} onChange={set('password')} required /></div>
-          <div className="form-row"><label>Confirm</label><input type="password" placeholder="Repeat" value={form.confirm} onChange={set('confirm')} required /></div>
+          <div className="form-row"><label>New Password</label><PasswordInput placeholder="Min 8 chars" value={form.password} onChange={set('password')} minLength={8} required /></div>
+          <div className="form-row"><label>Confirm</label><PasswordInput placeholder="Repeat" value={form.confirm} onChange={set('confirm')} minLength={8} required /></div>
           <Button variant="primary" type="submit" loading={loading} className="w-full justify-center">Reset Password</Button>
         </form>
       </div>

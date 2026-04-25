@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { Alert, Button } from '../../components/UI';
+import { Alert, Button, PasswordInput } from '../../components/UI';
 
 export default function LoginPage() {
   const [form,    setForm]    = useState({ email: '', password: '' });
@@ -46,7 +46,7 @@ export default function LoginPage() {
           </div>
           <div className="form-row">
             <label>Password</label>
-            <input type="password" placeholder="••••••••" value={form.password} onChange={set('password')} required />
+            <PasswordInput placeholder="••••••••" value={form.password} onChange={set('password')} required />
           </div>
 
           <div className="flex justify-end mb-4">
