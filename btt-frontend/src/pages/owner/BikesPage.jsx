@@ -4,14 +4,16 @@ import { getBikes, deleteBike } from '../../api/bikeApi';
 import { Button, Modal, EmptyState, Spinner, ConfirmDialog } from '../../components/UI';
 import BikeCard   from '../../components/cards/BikeCard';
 import BikeForm   from '../../components/forms/BikeForm';
+import ReportForm from '../../components/forms/ReportForm';
 
 export default function BikesPage() {
   const { data, loading, refetch } = useFetch(getBikes, []);
   const bikes = data?.results ?? data ?? [];
 
-  const [showAdd,   setShowAdd]   = useState(false);
-  const [deleteId,  setDeleteId]  = useState(null);
-  const [deleting,  setDeleting]  = useState(false);
+  const [showAdd,       setShowAdd]       = useState(false);
+  const [deleteId,      setDeleteId]      = useState(null);
+  const [deleting,      setDeleting]      = useState(false);
+  const [reportBike,    setReportBike]    = useState(null); // bike object to pre-fill report form
 
   async function handleDelete() {
     setDeleting(true);
@@ -34,14 +36,35 @@ export default function BikesPage() {
       ) : (
         <div className="flex flex-col gap-3">
           {bikes.map((b) => (
-            <BikeCard key={b.id} bike={b} onDelete={(id) => setDeleteId(id)} />
+            <BikeCard
+              key={b.id}
+              bike={b}
+              onDelete={(id) => setDeleteId(id)}
+              onReportStolen={(bike) => setReportBike(bike)}
+            />
           ))}
         </div>
       )}
 
+      {/* Register new bike */}
       {showAdd && (
         <Modal title="Register New Bike" onClose={() => setShowAdd(false)}>
           <BikeForm onSuccess={() => { setShowAdd(false); refetch(); }} onCancel={() => setShowAdd(false)} />
+        </Modal>
+      )}
+
+      {/* Report stolen — pre-filled with the selected bike */}
+      {reportBike && (
+        <Modal
+          title={`Report Stolen — ${reportBike.make ?? ''} ${reportBike.model ?? ''}`}
+          onClose={() => setReportBike(null)}
+          size="lg"
+        >
+          <ReportForm
+            initialBikeId={reportBike.id}
+            onSuccess={() => { setReportBike(null); refetch(); }}
+            onCancel={() => setReportBike(null)}
+          />
         </Modal>
       )}
 

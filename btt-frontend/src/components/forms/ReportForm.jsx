@@ -3,9 +3,10 @@ import { fileReport } from '../../api/reportApi';
 import { getBikes }   from '../../api/bikeApi';
 import { Alert, Button } from '../UI';
 
-export default function ReportForm({ onSuccess, onCancel }) {
+export default function ReportForm({ onSuccess, onCancel, initialBikeId = '' }) {
   const [form,   setForm]   = useState({
-    bike: '', theft_city: '', theft_date: '',
+    bike: initialBikeId ? String(initialBikeId) : '',
+    theft_city: '', theft_date: '',
     theft_location_detail: '', description: '',
   });
   const [bikes,  setBikes]  = useState([]);

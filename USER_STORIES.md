@@ -281,11 +281,18 @@ for any theft report.
 > *As an owner, I want to file a theft report for my stolen bike with the date,
 > city, and location detail so it enters the investigation queue.*
 
+- **Two entry points:**
+  1. **My Bikes page** — each non-stolen bike card shows a 🚨 **Report Stolen**
+     button. Clicking it opens the report form pre-filled with that bike so the
+     owner never has to select it manually from a dropdown.
+  2. **My Reports page** — the **+ File Report** button opens the same form
+     with an empty bike selector (useful if navigating from the reports tab).
 - `POST /api/reports/` with `{bike, theft_date, theft_city, description}`.
 - Future theft dates are rejected.
 - Can only file against own bikes; another owner's bike returns 403.
 - Duplicate reports (same bike, open status) are rejected.
-- After filing, the bike shows as `stolen: true` on the public search.
+- After filing, the bike card status badge switches from `Active` to `Stolen`
+  and the 🚨 button disappears (already reported).
 - **Tests:** `test_owner_can_file_report`, `test_future_theft_date_rejected`,
   `test_cannot_report_other_owners_bike`, `test_cannot_file_duplicate_report`,
   `test_stolen_bike_flagged`, `test_no_owner_data_in_public_search`

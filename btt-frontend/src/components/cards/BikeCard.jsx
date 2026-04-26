@@ -1,7 +1,7 @@
 import Badge from '../UI/Badge';
 import Button from '../UI/Button';
 
-export default function BikeCard({ bike, onDelete }) {
+export default function BikeCard({ bike, onDelete, onReportStolen }) {
   return (
     <div className="card card-sm card-hover">
       <div className="flex items-start justify-between gap-4">
@@ -19,6 +19,12 @@ export default function BikeCard({ bike, onDelete }) {
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
           <Badge variant={bike.is_stolen ? 'red' : 'green'}>{bike.is_stolen ? 'Stolen' : 'Active'}</Badge>
+          {/* Only show "Report Stolen" if bike is not already reported stolen */}
+          {onReportStolen && !bike.is_stolen && (
+            <Button variant="warning" size="sm" onClick={() => onReportStolen(bike)}>
+              🚨 Report Stolen
+            </Button>
+          )}
           {onDelete && <Button variant="danger" size="sm" onClick={() => onDelete(bike.id)}>Remove</Button>}
         </div>
       </div>
