@@ -31,7 +31,7 @@ for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":3000 " 2^>nul') do taskkill
 
 echo [2/9] Stopping PostgreSQL (if running)...
 "%PGCTL%" -D "%PGDATA%" stop >nul 2>&1
-timeout /t 1 /nobreak >nul
+ping 127.0.0.1 -n 2 >nul
 
 echo [3/9] Clearing local test/cache artifacts...
 if exist "%BACKEND_DIR%\.pytest_cache" rmdir /s /q "%BACKEND_DIR%\.pytest_cache"
@@ -45,7 +45,7 @@ if errorlevel 1 (
   echo [ERROR] Failed to start PostgreSQL.
   exit /b 1
 )
-timeout /t 2 /nobreak >nul
+ping 127.0.0.1 -n 3 >nul
 
 echo [5/9] Flushing DB data and applying migrations...
 pushd "%BACKEND_DIR%"
@@ -55,6 +55,8 @@ if errorlevel 1 (
   popd
   exit /b 1
 )
+echo        Generating any missing migrations...
+"%PYTHON_EXE%" manage.py makemigrations
 "%PYTHON_EXE%" manage.py migrate
 if errorlevel 1 (
   echo [ERROR] migrate failed.

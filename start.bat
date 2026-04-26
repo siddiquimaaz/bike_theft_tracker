@@ -23,13 +23,13 @@ for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":3000 " 2^>nul') do (
 :: ── STEP 2: Stop PostgreSQL if already running ────────────────────────────────
 echo [3/6] Stopping PostgreSQL (if running)...
 "%PGCTL%" -D "%PGDATA%" stop >nul 2>&1
-timeout /t 2 /nobreak >nul
+ping 127.0.0.1 -n 3 >nul
 
 :: ── STEP 3: Deactivate any active venv (kill leftover python processes) ───────
 echo [4/6] Clearing any active virtual environment...
 taskkill /IM python.exe /F >nul 2>&1
 taskkill /IM node.exe /F >nul 2>&1
-timeout /t 1 /nobreak >nul
+ping 127.0.0.1 -n 2 >nul
 
 :: ── STEP 4: Start PostgreSQL fresh ───────────────────────────────────────────
 echo [5/6] Starting PostgreSQL on port 5433...
