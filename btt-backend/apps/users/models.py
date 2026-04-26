@@ -102,7 +102,13 @@ class AuditLog(models.Model):
     """
     Immutable audit trail — INSERT ONLY. Never UPDATE or DELETE rows here.
     """
-    user = models.ForeignKey(User, on_delete=models.PROTECT, related_name="audit_logs")
+    user = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="audit_logs",
+    )
     action = models.CharField(max_length=100,
                               help_text="e.g. CREATED_REPORT, UPDATED_STATUS, LOGGED_RECOVERY")
     table_affected = models.CharField(max_length=50, null=True, blank=True)

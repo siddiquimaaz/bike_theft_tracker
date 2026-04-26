@@ -166,7 +166,11 @@ class AuditLogListView(generics.ListAPIView):
         from rest_framework import serializers
 
         class AuditLogSerializer(serializers.ModelSerializer):
-            user_email = serializers.EmailField(source="user.email", read_only=True)
+            # user may be NULL when the associated account was deleted (SET_NULL cascade)
+            user_email = serializers.SerializerMethodField()
+
+            def get_user_email(self, obj):
+                return obj.user.email if obj.user_id and obj.user else "[deleted]"
 
             class Meta:
                 model = AuditLog
