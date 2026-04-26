@@ -164,6 +164,94 @@ def recovery_zones(request):
     return Response(result)
 
 
+# ─── Recovery Radius ──────────────────────────────────────────────────────────
+
+@api_view(["GET"])
+@permission_classes([IsAuthorityOrAdmin])
+def recovery_radius(request):
+    """
+    GET /api/ml/recovery-radius/?city={city}
+
+    Returns cached statistics about how far (in km) stolen bikes typically
+    travel between the theft location and the recovery location.
+    Authority can scope to their own city; Admin can query any city or national.
+
+    Response (200):
+      { mean_km, median_km, min_km, max_km, std_km, record_count, scope_city }
+    Response (202): cache stale — recompute pending.
+    """
+    city = request.query_params.get("city", None)
+
+    from .models import MLAnalysisCache
+    cache = MLAnalysisCache.get_fresh(MLAnalysisCache.AnalysisType.RECOVERY_RADIUS, city=city)
+
+    if not cache:
+        return Response(
+            {
+                "message": (
+                    "Recovery radius cache is stale or not yet computed. "
+                    "Results will be available after the next scheduled run. "
+                    "Admin can trigger recompute at POST /api/ml/trigger-reanalysis/."
+                ),
+                "data": None,
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+    return Response({
+        "analysis_type": "recovery_radius",
+        "scope_city": city,
+        "computed_at": cache.computed_at,
+        "expires_at": cache.expires_at,
+        "record_count": cache.record_count,
+        "data": cache.result_data,
+    })
+
+
+# ─── Corridor Analysis ────────────────────────────────────────────────────────
+
+@api_view(["GET"])
+@permission_classes([IsAuthorityOrAdmin])
+def corridor_analysis(request):
+    """
+    GET /api/ml/corridors/?city={city}
+
+    Returns cached DBSCAN clusters of theft-to-recovery displacement vectors,
+    showing which directions and distances stolen bikes commonly travel.
+
+    Each corridor cluster contains:
+      bearing_deg, bearing_label (e.g. "NE"), mean_distance_km, report_count
+
+    Response (200): fresh cache data.
+    Response (202): cache stale.
+    """
+    city = request.query_params.get("city", None)
+
+    from .models import MLAnalysisCache
+    cache = MLAnalysisCache.get_fresh(MLAnalysisCache.AnalysisType.CORRIDOR_ANALYSIS, city=city)
+
+    if not cache:
+        return Response(
+            {
+                "message": (
+                    "Corridor analysis cache is stale or not yet computed. "
+                    "Admin can trigger recompute at POST /api/ml/trigger-reanalysis/."
+                ),
+                "data": None,
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+    return Response({
+        "analysis_type": "corridor_analysis",
+        "scope_city": city,
+        "computed_at": cache.computed_at,
+        "expires_at": cache.expires_at,
+        "record_count": cache.record_count,
+        "data": cache.result_data,
+    })
+
+
 # ─── Manual Reanalysis Trigger ────────────────────────────────────────────────
 
 @api_view(["POST"])
@@ -171,14 +259,18 @@ def recovery_zones(request):
 def trigger_reanalysis(request):
     """
     POST /api/ml/trigger-reanalysis/
-    Admin triggers hotspot + trend recompute outside the cron schedule.
+    Admin triggers hotspot + trend + corridor + radius recompute outside the cron schedule.
     Runs synchronously — may take a few seconds on large datasets.
     """
     import threading
 
     def _run():
-        from .analysis import run_hotspot_analysis, save_hotspot_cache
-        from .analysis import run_trend_analytics, save_trend_cache
+        from .analysis import (
+            run_hotspot_analysis, save_hotspot_cache,
+            run_trend_analytics, save_trend_cache,
+            run_corridor_analysis, save_corridor_cache,
+            run_recovery_radius, save_recovery_radius_cache,
+        )
         try:
             hotspot_result = run_hotspot_analysis()
             save_hotspot_cache(hotspot_result)
@@ -191,9 +283,21 @@ def trigger_reanalysis(request):
             logger.info("Manual reanalysis: trends complete")
         except Exception as exc:
             logger.error("Manual reanalysis: trends failed: %s", exc)
+        try:
+            corridor_result = run_corridor_analysis()
+            save_corridor_cache(corridor_result)
+            logger.info("Manual reanalysis: corridors complete")
+        except Exception as exc:
+            logger.error("Manual reanalysis: corridors failed: %s", exc)
+        try:
+            radius_result = run_recovery_radius()
+            save_recovery_radius_cache(radius_result)
+            logger.info("Manual reanalysis: recovery radius complete")
+        except Exception as exc:
+            logger.error("Manual reanalysis: recovery radius failed: %s", exc)
 
     threading.Thread(target=_run, daemon=True).start()
 
     return Response({
-        "message": "Reanalysis jobs started in background. Results will be available shortly."
+        "message": "Reanalysis jobs started in background (hotspot, trends, corridors, radius). Results will be available shortly."
     })

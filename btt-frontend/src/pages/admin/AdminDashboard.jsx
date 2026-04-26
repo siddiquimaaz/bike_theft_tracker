@@ -1,11 +1,13 @@
 import { useFetch } from '../../hooks/useFetch';
 import { getAnalytics } from '../../api/adminApi';
-import { triggerReanalysis } from '../../api/mlApi';
+import { triggerReanalysis, getRecoveryRadius, getCorridors } from '../../api/mlApi';
 import { StatCard, Spinner, Button } from '../../components/UI';
 import { useState } from 'react';
 
 export default function AdminDashboard() {
   const { data, loading, refetch } = useFetch(getAnalytics, []);
+  const { data: rrData }           = useFetch(getRecoveryRadius, []);   // national
+  const { data: corData }          = useFetch(getCorridors, []);        // national
   const [triggering, setTriggering] = useState(false);
 
   async function handleReanalysis() {
@@ -27,6 +29,11 @@ export default function AdminDashboard() {
   const totalCities   = cityBreakdown.reduce((s, c) => s + (c.count ?? 0), 0);
 
   const activeCount = (rep.stolen ?? 0) + (rep.under_investigation ?? 0);
+
+  // ML insight strips — null when cache is pending (202)
+  const radius     = rrData?.status === 202 ? null : rrData?.data;
+  const corResult  = corData?.status === 202 ? null : corData?.data;
+  const dominant   = corResult?.corridors?.[0] ?? null;
 
   return (
     <div>
@@ -71,10 +78,39 @@ export default function AdminDashboard() {
       )}
 
       {/* User breakdown */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-3 gap-3 mb-6">
         <StatCard label="Bike Owners"   value={usr.owners}      icon="🏍" />
         <StatCard label="Authorities"   value={usr.authorities}  icon="🚔" color="text-blue-400" />
         <StatCard label="Community"     value={usr.community}    icon="👥" color="text-emerald-400" />
+      </div>
+
+      {/* ML Intelligence strip */}
+      <div className="card">
+        <h2 className="font-heading font-semibold text-sm text-gray-100 mb-4">🤖 ML Intelligence — National</h2>
+        <div className="grid grid-cols-3 gap-4">
+          <div>
+            <div className="text-xs text-muted uppercase tracking-wider mb-1">Avg Recovery Distance</div>
+            {radius
+              ? <><span className="text-xl font-bold font-mono text-primary">{radius.mean_km} km</span>
+                  <div className="text-xs text-faint mt-0.5">median {radius.median_km} km · {radius.record_count} cases</div></>
+              : <span className="text-sm text-muted italic">Cache pending</span>}
+          </div>
+          <div>
+            <div className="text-xs text-muted uppercase tracking-wider mb-1">Dominant Movement</div>
+            {dominant
+              ? <><span className="text-xl font-bold font-mono text-primary">{dominant.bearing_label}</span>
+                  <span className="text-xs text-faint ml-2">~{dominant.mean_distance_km} km</span>
+                  <div className="text-xs text-faint mt-0.5">{dominant.report_count} cases in this corridor</div></>
+              : <span className="text-sm text-muted italic">Cache pending</span>}
+          </div>
+          <div>
+            <div className="text-xs text-muted uppercase tracking-wider mb-1">Corridors Detected</div>
+            {corResult
+              ? <><span className="text-xl font-bold font-mono text-primary">{corResult.corridors?.length ?? 0}</span>
+                  <div className="text-xs text-faint mt-0.5">{corResult.noise_points ?? 0} unclustered cases</div></>
+              : <span className="text-sm text-muted italic">Cache pending</span>}
+          </div>
+        </div>
       </div>
     </div>
   );

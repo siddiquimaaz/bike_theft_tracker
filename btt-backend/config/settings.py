@@ -265,6 +265,7 @@ ML_FUZZY_HIGH_THRESHOLD = 85
 ML_FUZZY_MEDIUM_THRESHOLD = 70
 ML_HOTSPOT_LOOKBACK_DAYS = 180  # 6 months
 ML_MIN_RECORDS_FOR_CLUSTERING = 10
+ML_MIN_RECORDS_FOR_CORRIDOR   = 3   # corridor/radius runs on fewer points (pairs need both locations)
 
 # Workflow automation thresholds
 OWNER_ALERT_THRESHOLD = int(os.getenv("OWNER_ALERT_THRESHOLD", 70))

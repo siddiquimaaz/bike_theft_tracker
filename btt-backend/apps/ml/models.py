@@ -9,9 +9,11 @@ from django.utils import timezone
 
 class MLAnalysisCache(models.Model):
     class AnalysisType(models.TextChoices):
-        HOTSPOT_CLUSTERS = "hotspot_clusters", "Hotspot Clusters (DBSCAN)"
-        TREND_ANALYTICS = "trend_analytics", "Trend Analytics (pandas)"
-        RECOVERY_ZONES = "recovery_zones", "Recovery Zone Analysis (PostGIS)"
+        HOTSPOT_CLUSTERS  = "hotspot_clusters",  "Hotspot Clusters (DBSCAN)"
+        TREND_ANALYTICS   = "trend_analytics",   "Trend Analytics (pandas)"
+        RECOVERY_ZONES    = "recovery_zones",    "Recovery Zone Analysis (PostGIS)"
+        CORRIDOR_ANALYSIS = "corridor_analysis", "Theft-to-Recovery Corridor Analysis (DBSCAN)"
+        RECOVERY_RADIUS   = "recovery_radius",   "Recovery Radius Statistics"
 
     analysis_type = models.CharField(max_length=30, choices=AnalysisType.choices)
     scope_city = models.CharField(

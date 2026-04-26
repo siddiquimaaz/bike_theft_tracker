@@ -273,3 +273,254 @@ def get_recovery_zones(lat: float, lng: float, radius_km: float = 20) -> dict:
         "recovery_points": points,
         "count": len(points),
     }
+
+
+# ─── Recovery Radius Statistics ───────────────────────────────────────────────
+
+def run_recovery_radius(city: str | None = None) -> dict:
+    """
+    For each theft report that has a matched RecoveryRecord, compute the
+    straight-line haversine distance (km) between theft_location and
+    recovery_location.  Returns mean, median, min, max, and std deviation.
+
+    Args:
+        city: Scope to a specific theft city, or None for national.
+
+    Returns:
+        dict with keys:
+          mean_km, median_km, min_km, max_km, std_km,
+          record_count, skipped
+    """
+    try:
+        import numpy as np
+    except ImportError as exc:
+        logger.error("numpy missing: %s", exc)
+        return {"error": str(exc)}
+
+    from math import radians, sin, cos, sqrt, atan2
+    from django.conf import settings
+    from apps.reports.models import RecoveryRecord
+
+    min_records = getattr(settings, "ML_MIN_RECORDS_FOR_CORRIDOR", 3)
+
+    qs = RecoveryRecord.objects.filter(
+        theft_report__theft_location__isnull=False,
+        recovery_location__isnull=False,
+        theft_report__deleted_at__isnull=True,
+    ).select_related("theft_report")
+
+    if city:
+        qs = qs.filter(theft_report__theft_city__iexact=city)
+
+    records = list(qs)
+
+    if len(records) < min_records:
+        logger.warning(
+            "Recovery radius skipped — only %d paired records (minimum %d required)",
+            len(records), min_records,
+        )
+        return {"skipped": True, "record_count": len(records)}
+
+    def _haversine_km(lat1, lng1, lat2, lng2):
+        R = 6371.0
+        dlat = radians(lat2 - lat1)
+        dlng = radians(lng2 - lng1)
+        a = sin(dlat / 2) ** 2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlng / 2) ** 2
+        return 2 * R * atan2(sqrt(a), sqrt(1 - a))
+
+    distances = []
+    for rec in records:
+        t_loc = rec.theft_report.theft_location
+        r_loc = rec.recovery_location
+        if t_loc and r_loc:
+            distances.append(_haversine_km(t_loc.y, t_loc.x, r_loc.y, r_loc.x))
+
+    if not distances:
+        return {"skipped": True, "record_count": 0}
+
+    arr = np.array(distances)
+    result = {
+        "skipped": False,
+        "record_count": len(arr),
+        "mean_km":   round(float(np.mean(arr)), 2),
+        "median_km": round(float(np.median(arr)), 2),
+        "min_km":    round(float(arr.min()), 2),
+        "max_km":    round(float(arr.max()), 2),
+        "std_km":    round(float(np.std(arr)), 2),
+        "scope_city": city,
+    }
+    logger.info(
+        "Recovery radius [%s]: %d records — mean=%.2f km, median=%.2f km",
+        city or "national", len(arr), result["mean_km"], result["median_km"],
+    )
+    return result
+
+
+def save_recovery_radius_cache(result: dict, city: str | None = None):
+    """Persist recovery radius result with 25-hour TTL."""
+    from django.utils import timezone
+    from .models import MLAnalysisCache
+    MLAnalysisCache.objects.create(
+        analysis_type=MLAnalysisCache.AnalysisType.RECOVERY_RADIUS,
+        scope_city=city,
+        result_data=result,
+        expires_at=timezone.now() + timedelta(hours=25),
+        record_count=result.get("record_count"),
+    )
+
+
+# ─── Theft-to-Recovery Corridor Analysis ──────────────────────────────────────
+
+def _bearing_label(degrees: float) -> str:
+    """Convert a compass bearing (0–360°) to a cardinal direction label."""
+    dirs = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
+            "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"]
+    idx = int((degrees + 11.25) / 22.5) % 16
+    return dirs[idx]
+
+
+def run_corridor_analysis(city: str | None = None) -> dict:
+    """
+    DBSCAN on theft-to-recovery displacement vectors to identify common
+    movement corridors — directions and distances bikes typically travel
+    between theft point and recovery point.
+
+    Each (theft_location, recovery_location) pair produces a 2D displacement
+    vector (dx_km, dy_km).  DBSCAN clusters these to find dominant corridors.
+
+    Args:
+        city: Scope to a specific theft city, or None for national.
+
+    Returns:
+        dict with keys:
+          corridors — list of cluster dicts:
+            { corridor_id, bearing_deg, bearing_label, mean_distance_km,
+              report_count, dx_mean_km, dy_mean_km }
+          overall_stats — { dominant_bearing_label, dominant_bearing_deg,
+                            mean_distance_km, record_count }
+          noise_points, record_count, skipped
+    """
+    try:
+        import numpy as np
+        from sklearn.cluster import DBSCAN
+    except ImportError as exc:
+        logger.error("ML dependencies missing: %s", exc)
+        return {"error": str(exc)}
+
+    from math import radians, sin, cos, sqrt, atan2, degrees
+    from django.conf import settings
+    from apps.reports.models import RecoveryRecord
+
+    min_records = getattr(settings, "ML_MIN_RECORDS_FOR_CORRIDOR", 3)
+    eps_km = 8.0    # corridors within 8 km of each other are grouped
+    min_samples = getattr(settings, "ML_DBSCAN_MIN_SAMPLES", 3)
+
+    qs = RecoveryRecord.objects.filter(
+        theft_report__theft_location__isnull=False,
+        recovery_location__isnull=False,
+        theft_report__deleted_at__isnull=True,
+    ).select_related("theft_report")
+
+    if city:
+        qs = qs.filter(theft_report__theft_city__iexact=city)
+
+    records = list(qs)
+
+    if len(records) < min_records:
+        logger.warning(
+            "Corridor analysis skipped — only %d paired records (minimum %d required)",
+            len(records), min_records,
+        )
+        return {"skipped": True, "record_count": len(records), "corridors": [], "noise_points": 0}
+
+    # Build displacement vector for each pair (in km, Cartesian approximation)
+    EARTH_KM = 6371.0
+    vectors = []
+    for rec in records:
+        t_loc = rec.theft_report.theft_location
+        r_loc = rec.recovery_location
+        if not (t_loc and r_loc):
+            continue
+        t_lat, t_lng = t_loc.y, t_loc.x
+        r_lat, r_lng = r_loc.y, r_loc.x
+        # Convert degree deltas to km (flat-earth approximation, valid for <100 km)
+        mid_lat = radians((t_lat + r_lat) / 2)
+        dx_km = (r_lng - t_lng) * (EARTH_KM * cos(mid_lat)) * (3.14159265 / 180)
+        dy_km = (r_lat - t_lat) * EARTH_KM * (3.14159265 / 180)
+        vectors.append((dx_km, dy_km))
+
+    if not vectors:
+        return {"skipped": True, "record_count": 0, "corridors": [], "noise_points": 0}
+
+    arr = np.array(vectors)  # shape (N, 2)
+
+    # DBSCAN on displacement vectors — eps in km-space
+    db = DBSCAN(eps=eps_km, min_samples=min_samples, algorithm="ball_tree").fit(arr)
+
+    corridors = []
+    for cluster_id in sorted(set(db.labels_)):
+        if cluster_id == -1:
+            continue
+        mask = db.labels_ == cluster_id
+        cluster_vecs = arr[mask]
+
+        dx_mean = float(cluster_vecs[:, 0].mean())
+        dy_mean = float(cluster_vecs[:, 1].mean())
+
+        # Bearing: angle from North, clockwise (0° = N, 90° = E, 180° = S, 270° = W)
+        bearing = (degrees(atan2(dx_mean, dy_mean)) + 360) % 360
+        dist_km = float(np.sqrt(dx_mean**2 + dy_mean**2))
+
+        corridors.append({
+            "corridor_id":      int(cluster_id),
+            "bearing_deg":      round(bearing, 1),
+            "bearing_label":    _bearing_label(bearing),
+            "mean_distance_km": round(dist_km, 2),
+            "dx_mean_km":       round(dx_mean, 2),
+            "dy_mean_km":       round(dy_mean, 2),
+            "report_count":     int(mask.sum()),
+        })
+
+    # Sort by report count descending — dominant corridor first
+    corridors.sort(key=lambda c: c["report_count"], reverse=True)
+
+    noise_count = int((db.labels_ == -1).sum())
+
+    # Overall stats across all pairs (not just clustered ones)
+    all_bearings = [
+        (degrees(atan2(v[0], v[1])) + 360) % 360
+        for v in vectors
+    ]
+    all_distances = [float(np.sqrt(v[0]**2 + v[1]**2)) for v in vectors]
+    mean_bearing = float(np.mean(all_bearings)) if all_bearings else 0.0
+    mean_distance = round(float(np.mean(all_distances)), 2) if all_distances else 0.0
+
+    logger.info(
+        "Corridor analysis [%s]: %d corridors, %d noise points from %d records",
+        city or "national", len(corridors), noise_count, len(vectors),
+    )
+    return {
+        "skipped": False,
+        "corridors": corridors,
+        "noise_points": noise_count,
+        "record_count": len(vectors),
+        "overall_stats": {
+            "dominant_bearing_deg":   round(mean_bearing, 1),
+            "dominant_bearing_label": _bearing_label(mean_bearing),
+            "mean_distance_km":       mean_distance,
+            "record_count":           len(vectors),
+        },
+    }
+
+
+def save_corridor_cache(result: dict, city: str | None = None):
+    """Persist corridor analysis result with 25-hour TTL."""
+    from django.utils import timezone
+    from .models import MLAnalysisCache
+    MLAnalysisCache.objects.create(
+        analysis_type=MLAnalysisCache.AnalysisType.CORRIDOR_ANALYSIS,
+        scope_city=city,
+        result_data=result,
+        expires_at=timezone.now() + timedelta(hours=25),
+        record_count=result.get("record_count"),
+    )
