@@ -30,13 +30,67 @@ def _create_in_app(user, notification_type, message, report=None, sighting=None,
 # ─── Trigger: Theft Report Created ────────────────────────────────────────────
 
 def notify_theft_reported(report):
+    """
+    Fires when a theft report is submitted.
+
+    1. Owner — confirms their report was filed.
+    2. Authority users in the same city — case assignment alert.
+    3. Community users in the same city — public awareness alert
+       (no owner PII, only make/model and reference number).
+    """
+    from apps.users.models import User
+
     owner = report.reported_by
-    message = (
-        f"Your theft report has been filed. "
-        f"Reference: {report.reference_number}. "
-        f"Bike: {report.bike.make} {report.bike.model}."
+    theft_city = report.theft_city or ""
+
+    # 1. Owner confirmation
+    _create_in_app(
+        owner,
+        Notification.Type.THEFT_REPORTED,
+        (
+            f"Your theft report has been filed. "
+            f"Reference: {report.reference_number}. "
+            f"Bike: {report.bike.make} {report.bike.model}."
+        ),
+        report,
     )
-    _create_in_app(owner, Notification.Type.THEFT_REPORTED, message, report)
+
+    # 2. Authority — same city only
+    authority_qs = User.objects.filter(
+        role=User.Role.AUTHORITY,
+        is_active=True,
+        city__iexact=theft_city,
+    )
+    for officer in authority_qs:
+        _create_in_app(
+            officer,
+            Notification.Type.THEFT_REPORTED,
+            (
+                f"New case in your city: {report.reference_number} — "
+                f"{report.bike.make} {report.bike.model} stolen in {theft_city}."
+            ),
+            report,
+        )
+
+    # 3. Community — same city only (no owner contact/PII)
+    community_qs = User.objects.filter(
+        role=User.Role.COMMUNITY,
+        is_active=True,
+        city__iexact=theft_city,
+    ).exclude(id=owner.id)
+    for member in community_qs:
+        _create_in_app(
+            member,
+            Notification.Type.SYSTEM,
+            (
+                f"\U0001f6a8 {report.bike.make} {report.bike.model} reported stolen "
+                f"in {theft_city} (Ref: {report.reference_number}). "
+                f"Submit a sighting if you spot it."
+            ),
+        )
+
+    # Add case timeline event
+    add_case_timeline_event(report, "report_filed")
 
     # TODO (future release): send_theft_reported_email(owner, report)
     # Requires EMAIL_HOST_USER + EMAIL_HOST_PASSWORD in .env
