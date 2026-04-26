@@ -38,8 +38,14 @@ This project’s back-end is a **Django 4.2 + Django REST Framework** API that p
   - Users can list notifications, mark one read, or mark all read.
 
 - **ML/analytics endpoints (Authority/Admin)**
-  - Provides analytics such as **hotspots** (clustered theft locations) and **trend** reporting.
-  - Supports “reanalysis” style operations (admin-only) to recompute analytics after new data.
+  - **Fuzzy match** (rapidfuzz WRatio) — engine/chassis number matching against all active theft reports.
+  - **DBSCAN hotspot clustering** — identifies theft concentration zones from report location data.
+  - **Trend analytics** — monthly theft/recovery counts and recovery rate per city.
+  - **Recovery radius** — mean/median km distance between theft and recovery location (city-scoped).
+  - **Corridor analysis** — DBSCAN on theft→recovery displacement vectors; identifies dominant movement directions (bearing + distance).
+  - **Recovery zones** — PostGIS ST_DWithin query returning historical recovery points near a given location.
+  - Admin can trigger full reanalysis (hotspot + trends + corridors + radius) on-demand.
+  - All heavy computation is cached in `MLAnalysisCache`; dashboards read from cache only.
 
 ## Data & infrastructure
 

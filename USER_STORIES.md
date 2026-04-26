@@ -508,7 +508,9 @@ Event 6 ─── Owner confirms pickup
 | `test_security.py` | 22 | Auth hardening, throttle, RBAC exhaustive |
 | `test_bike_serializers_extra.py` | 2 | Serializer edge cases |
 | `test_fuzzy_match.py` | 15 | WRatio scoring accuracy at various thresholds |
-| **Total** | **341** | **90.36% coverage — threshold met ✅** |
+| `test_theft_alert_notifications.py` | 16 | City-scoped theft alert fan-out (owner/authority/community) |
+| `test_ml_corridors.py` | 21 | Recovery radius + corridor analysis endpoints + unit tests |
+| **Total** | **378** | **≥90% coverage — threshold met ✅** |
 
 ---
 
@@ -516,9 +518,9 @@ Event 6 ─── Owner confirms pickup
 
 Which role receives which notification, and when:
 
-| Event | Owner | Authority | Community | Admin |
+| Event | Owner | Authority (same city) | Community (same city) | Admin |
 |---|---|---|---|---|
-| Theft report filed | ✅ THEFT_REPORTED | — | — | — |
+| Theft report filed | ✅ THEFT_REPORTED | ✅ THEFT_REPORTED (new case alert) | ✅ SYSTEM (public awareness, no PII) | — |
 | Status → `bike_located` | ✅ STATUS_UPDATE | — | — | — |
 | Recovery logged | ✅ RECOVERY | — | — | — |
 | Sighting matched (owner alert) | ✅ SIGHTING_OWNER_HANDSHAKE | — | — | — |

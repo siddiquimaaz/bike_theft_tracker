@@ -11,7 +11,7 @@ Operational reset/start procedures are documented in `RESET_RUNBOOK.md`.
 - `owner`: self-service for own bikes/cases
 - `community`: public reporting and own submission tracking
 
-## Target capability matrix
+## Capability matrix
 
 | Capability | Admin | Authority | Owner | Community |
 |---|---:|---:|---:|---:|
@@ -20,8 +20,12 @@ Operational reset/start procedures are documented in `RESET_RUNBOOK.md`.
 | Manage users / authority creation | Yes | No | No | No |
 | Access analytics / audit logs | Yes | No | No | No |
 | Trigger ML reanalysis | Yes | No | No | No |
-| Fuzzy search / hotspots | Optional hotspots only via policy | Yes | No | No |
+| View ML hotspots + corridors + radius | Yes | Yes (city-scoped) | No | No |
+| Fuzzy engine/chassis search | No | Yes | No | No |
+| View trend analytics | Yes | No | No | No |
+| View recovery zones | Yes | No | No | No |
 | Manage own bikes | No | No | Yes | No |
+| Report Stolen button on bike card | No | No | Yes | No |
 | File theft report | No | No | Yes (own bike only) | No |
 | View theft reports list/detail | Yes (all) | Yes (city scoped) | Yes (own only) | No |
 | Update theft status | Yes (optional policy override) | Yes | No | No |
@@ -29,10 +33,15 @@ Operational reset/start procedures are documented in `RESET_RUNBOOK.md`.
 | Submit sightings | Yes | Yes | Yes | Yes |
 | View sightings queue | Yes (unverified) | Yes (unverified) | Own only | Own only |
 | Verify sightings | Yes | Yes | No | No |
-| Notifications | Yes | Yes | Yes | Yes |
+| Receive THEFT_REPORTED alert | — | ✅ same city only | ✅ own report | — |
+| Receive community theft awareness alert | — | — | — | ✅ same city only, no PII |
+| Notifications (in-app) | Yes | Yes | Yes | Yes |
 
 ## Policy notes
 
 - Community users must not access full theft case data.
 - Owner and community sighting detail access must be object-scoped to their own submissions.
-- Authority should receive in-app alerts for newly submitted high-confidence sightings in their city to reduce queue latency.
+- Authority receives in-app `THEFT_REPORTED` alerts for newly filed cases **in their city**.
+- Community receives a `SYSTEM` notification when a bike is stolen in their city — no owner PII (email/phone/CNIC) is included.
+- ML endpoints `recovery-radius` and `corridors` are city-scoped for authority users (pass `?city=` param).
+- The "Report Stolen" button on the BikeCard is only shown for non-stolen bikes, opening a pre-filled ReportForm modal.

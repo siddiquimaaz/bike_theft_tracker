@@ -664,24 +664,26 @@ Legacy values (`stolen`, `under_investigation`) remain accepted for backwards co
 ---
 
 ### ML & Analytics — `/api/ml/`
-> Authority and Admin only.
+> Authority and Admin only (see per-endpoint role column).
 
 | Method | Endpoint | Who | Description |
 |--------|----------|-----|-------------|
-| POST | `/api/ml/fuzzy-match/` | Authority | Find bikes matching partial numbers |
-| GET | `/api/ml/hotspots/` | Authority / Admin | Theft hotspot clusters |
-| GET | `/api/ml/trends/` | Authority / Admin | Monthly theft trend analytics |
-| GET | `/api/ml/recovery-zones/` | Authority / Admin | Recovery hotspot areas |
+| GET | `/api/ml/fuzzy-match/?engine=` | Authority | Find bikes matching partial engine/chassis |
+| GET | `/api/ml/hotspots/?city=` | Authority / Admin | DBSCAN theft hotspot clusters |
+| GET | `/api/ml/trends/` | Admin | Monthly theft/recovery trend analytics |
+| GET | `/api/ml/recovery-zones/?lat=&lng=` | Admin | Recovery hotspot areas near a point (PostGIS) |
+| GET | `/api/ml/recovery-radius/?city=` | Authority / Admin | Avg/median theft→recovery distance (km) |
+| GET | `/api/ml/corridors/?city=` | Authority / Admin | Theft→recovery movement corridors (bearing + distance) |
 | POST | `/api/ml/trigger-reanalysis/` | Admin | Force recalculate all ML models |
 
-**Fuzzy match request body:**
-```json
-{
-  "engine_number": "ENG1234",
-  "chassis_number": "CHS5678"
-}
-```
+**Fuzzy match query params:** `?engine=<number>` or `?chassis=<number>` (min 3 chars)
 **Fuzzy match response:** List of matches with `fuzzy_match_score` (0–100). Score ≥ 85 = HIGH, ≥ 70 = MEDIUM, < 70 = LOW.
+
+**Recovery radius response:**
+```json
+{ "mean_km": 12.5, "median_km": 10.2, "min_km": 1.0, "max_km": 30.0, "std_km": 5.3, "record_count": 8 }
+```
+**Corridors response:** List of `{ bearing_deg, bearing_label, mean_distance_km, report_count }` sorted by dominant corridor first.
 
 ---
 
@@ -844,12 +846,18 @@ python manage.py seed_demo_data
 
 Run from `btt-backend/` with venv active.
 
-### Hotspot Analysis (DBSCAN Clustering)
-```cmd
-:: Run for all cities
-python manage.py run_hotspot_analysis
+### Hotspot + Corridor + Radius Analysis (all-in-one)
 
-:: Run for a specific city
+The `run_hotspot_analysis` command now runs three analyses per city:
+1. **DBSCAN hotspot clustering** — theft location concentration zones
+2. **Corridor analysis** — theft→recovery movement directions (DBSCAN on displacement vectors)
+3. **Recovery radius** — mean/median km between theft and recovery points
+
+```cmd
+:: Run for all cities + national
+python manage.py run_hotspot_analysis --all-cities
+
+:: Run for a specific city (hotspot + corridor + radius)
 python manage.py run_hotspot_analysis --city Karachi
 python manage.py run_hotspot_analysis --city Lahore
 python manage.py run_hotspot_analysis --city Islamabad
@@ -858,9 +866,6 @@ python manage.py run_hotspot_analysis --city Faisalabad
 python manage.py run_hotspot_analysis --city Peshawar
 python manage.py run_hotspot_analysis --city Quetta
 python manage.py run_hotspot_analysis --city Multan
-
-:: Run for ALL cities in sequence
-python manage.py run_hotspot_analysis --all-cities
 ```
 
 ### Trend Analytics
@@ -905,7 +910,7 @@ cd btt-backend
 ```
 
 ```cmd
-:: Run all tests (341 tests, requires 80% coverage to pass)
+:: Run all tests (378 tests, requires 90% coverage to pass)
 pytest
 
 :: Run with short traceback (faster output)
