@@ -51,6 +51,8 @@ SECRET_KEY = os.getenv("SECRET_KEY", "INSECURE-CHANGE-ME")
 DEBUG = os.getenv("DEBUG", "False") == "True"
 ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
 LOCAL_DEV_MODE = os.getenv("LOCAL_DEV_MODE", "False") == "True"
+# Set DISABLE_THROTTLE=True in .env to lift all rate limits during local testing.
+DISABLE_THROTTLE = os.getenv("DISABLE_THROTTLE", "False") == "True"
 
 # ─── Apps ─────────────────────────────────────────────────────────────────────
 INSTALLED_APPS = [
@@ -168,16 +170,22 @@ REST_FRAMEWORK = {
     "DEFAULT_RENDERER_CLASSES": [
         "rest_framework.renderers.JSONRenderer",
     ],
-    "DEFAULT_THROTTLE_CLASSES": [
-        "rest_framework.throttling.AnonRateThrottle",
-        "rest_framework.throttling.UserRateThrottle",
-    ],
+    # When DISABLE_THROTTLE=True (local dev), throttle classes are cleared so
+    # no rate limiting applies — lets you hammer endpoints freely during testing.
+    "DEFAULT_THROTTLE_CLASSES": (
+        []
+        if DISABLE_THROTTLE
+        else [
+            "rest_framework.throttling.AnonRateThrottle",
+            "rest_framework.throttling.UserRateThrottle",
+        ]
+    ),
     "DEFAULT_THROTTLE_RATES": {
-        "anon": "60/min",
-        "user": "200/min",
-        "login": "5/15min",
-        "report_submit": "10/hour",
-        "ml_endpoints": "30/15min",
+        "anon":               "60/min",
+        "user":               "200/min",
+        "login":              "5/15min",
+        "report_submit":      "10/hour",
+        "ml_endpoints":       "30/15min",
         "availability_check": "30/min",
     },
 }

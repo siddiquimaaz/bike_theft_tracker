@@ -148,20 +148,40 @@ def update_report_status(request, pk):
 
     new_status = serializer.validated_data["status"]
 
-    # Authority officers cannot directly close a case — closure requires either
-    # the bike owner to confirm receipt (via /recovery/confirm/) or an admin to
-    # intervene.  Admins retain the override right for exceptional circumstances.
-    if request.user.is_authority and new_status == TheftReport.Status.CLOSED:
-        return Response(
-            {
-                "error": (
-                    "Authority officers cannot close a case directly. "
-                    "The bike owner must confirm receipt via the recovery confirmation flow, "
-                    "or an admin must close the case."
-                )
-            },
-            status=status.HTTP_403_FORBIDDEN,
-        )
+    # Authority officers cannot bypass the owner-confirmation workflow.
+    # Specifically:
+    #   • Cannot set `closed`   — owner must confirm receipt or admin must override.
+    #   • Cannot set `recovered` when current status is pending_verification —
+    #     that transition belongs to the owner's /recovery/confirm/ endpoint;
+    #     authority jumping straight from pending_verification to recovered would
+    #     let them declare a case resolved without the owner ever acknowledging it.
+    # Admins retain full override rights for exceptional circumstances.
+    if request.user.is_authority:
+        if new_status == TheftReport.Status.CLOSED:
+            return Response(
+                {
+                    "error": (
+                        "Authority officers cannot close a case directly. "
+                        "The bike owner must confirm receipt via the recovery confirmation flow, "
+                        "or an admin must close the case."
+                    )
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        if (
+            new_status == TheftReport.Status.RECOVERED
+            and report.status == TheftReport.Status.PENDING_VERIFICATION
+        ):
+            return Response(
+                {
+                    "error": (
+                        "This case is awaiting owner confirmation. "
+                        "The bike owner must confirm receipt via the recovery confirmation flow. "
+                        "Authorities cannot advance the status past pending_verification."
+                    )
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
     try:
         old_status = report.transition_status(

@@ -61,19 +61,22 @@ export const STATUS_COLORS = {
 
 // The legal status transitions for authority (one-step forward advance).
 // NOTE: Authority officers cannot close a case — only the bike owner (via
-// recovery confirmation) or an admin can do that.  There is intentionally
-// no entry for 'recovered' here: the next action belongs to the owner.
+// recovery confirmation) or an admin can do that.  Once a case reaches
+// pending_verification the ball is in the owner's court: the owner must
+// confirm receipt via /recovery/confirm/ to close.  No authority advance
+// button should appear from pending_verification or recovered onward.
 export const STATUS_TRANSITIONS = {
-  // Legacy path (seeded data)
+  // Legacy path (seeded data) — stolen only moves forward one step
   stolen:               'under_investigation',
-  under_investigation:  'recovered',
 
   new_case:             'under_review',
   under_review:         'active_investigation',
   active_investigation: 'bike_located',
   bike_located:         'pending_verification',
-  pending_verification: 'recovered',
-  // recovered → closed is owner-only; no entry here deliberately
+  // pending_verification → owner-only confirm receipt (/recovery/confirm/)
+  // under_investigation  → recovery is logged by authority (no direct status jump)
+  // recovered            → owner-only confirm receipt or admin override
+  // No entries deliberately: authority has NO advance button from here on.
 };
 
 export const MATCH_CONFIDENCE_COLORS = {

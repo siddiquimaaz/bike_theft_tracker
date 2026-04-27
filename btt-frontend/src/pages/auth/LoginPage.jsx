@@ -71,6 +71,7 @@ export default function LoginPage() {
             { role: 'Admin',     email: 'admin@demo.btt',             pass: 'DemoAdmin@2024' },
             { role: 'Authority', email: 'authority.karachi@demo.btt', pass: 'Authority@2024' },
             { role: 'Owner',     email: 'owner000@demo.btt',          pass: 'Owner@2024' },
+            { role: 'Community', email: 'community@demo.btt',         pass: 'Community@2024' },
           ].map(({ role, email, pass }) => (
             <button key={role} type="button"
               className="w-full text-left text-[11px] text-muted hover:text-gray-100 py-0.5 transition-colors"

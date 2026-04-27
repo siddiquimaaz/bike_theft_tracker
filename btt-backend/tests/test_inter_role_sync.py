@@ -1014,6 +1014,63 @@ class TestInvalidStatusTransitions:
         )
         assert resp.status_code == 400
 
+    def test_authority_cannot_advance_pending_verification_to_recovered(
+        self, authority_client, sample_report
+    ):
+        """
+        Once a case reaches pending_verification (after authority logs a
+        recovery) the authority must NOT be able to advance it to recovered.
+        Only the bike owner's /recovery/confirm/ endpoint can do that.
+        """
+        # Walk the report to pending_verification via legitimate transitions
+        for s in ("under_review", "active_investigation", "bike_located"):
+            authority_client.put(
+                f"/api/reports/{sample_report.id}/status/",
+                {"status": s}, format="json"
+            )
+        # Log recovery — moves the report to pending_verification
+        authority_client.post(
+            f"/api/reports/{sample_report.id}/recovery/",
+            {
+                "recovery_city":  "Karachi",
+                "recovery_date":  "2024-01-15",
+                "bike_condition": "good",
+            },
+            format="json",
+        )
+        # Authority tries to jump to recovered without owner confirmation
+        resp = authority_client.put(
+            f"/api/reports/{sample_report.id}/status/",
+            {"status": "recovered"}, format="json"
+        )
+        assert resp.status_code == 403
+        assert "owner" in resp.data.get("error", "").lower()
+
+    def test_admin_can_advance_pending_verification_to_recovered(
+        self, admin_client, authority_client, sample_report
+    ):
+        """Admin retains the right to move a case from pending_verification to recovered."""
+        for s in ("under_review", "active_investigation", "bike_located"):
+            authority_client.put(
+                f"/api/reports/{sample_report.id}/status/",
+                {"status": s}, format="json"
+            )
+        authority_client.post(
+            f"/api/reports/{sample_report.id}/recovery/",
+            {
+                "recovery_city":  "Karachi",
+                "recovery_date":  "2024-01-15",
+                "bike_condition": "good",
+            },
+            format="json",
+        )
+        resp = admin_client.put(
+            f"/api/reports/{sample_report.id}/status/",
+            {"status": "recovered"}, format="json"
+        )
+        assert resp.status_code == 200
+        assert resp.data["new_status"] == "recovered"
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 11. END-TO-END DEMO NARRATIVE — "the presentation scenario"

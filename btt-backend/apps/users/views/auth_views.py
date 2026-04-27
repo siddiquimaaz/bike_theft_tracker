@@ -96,9 +96,15 @@ class BTTTokenObtainPairSerializer(TokenObtainPairSerializer):
         return data
 
 
+def _throttle_classes(*classes):
+    """Return throttle classes list, or empty list when DISABLE_THROTTLE=True."""
+    from django.conf import settings as django_settings
+    return [] if getattr(django_settings, "DISABLE_THROTTLE", False) else list(classes)
+
+
 class LoginView(TokenObtainPairView):
     serializer_class = BTTTokenObtainPairSerializer
-    throttle_classes = [LoginRateThrottle]
+    throttle_classes = _throttle_classes(LoginRateThrottle)
     permission_classes = [AllowAny]
 
 
@@ -270,7 +276,7 @@ class AvailabilityCheckThrottle(AnonRateThrottle):
 
 @api_view(["GET"])
 @permission_classes([AllowAny])
-@throttle_classes([AvailabilityCheckThrottle])
+@throttle_classes(_throttle_classes(AvailabilityCheckThrottle))
 def check_email(request):
     """
     GET /api/auth/check-email/?email=you@example.com
@@ -299,7 +305,7 @@ def check_email(request):
 
 @api_view(["GET"])
 @permission_classes([AllowAny])
-@throttle_classes([AvailabilityCheckThrottle])
+@throttle_classes(_throttle_classes(AvailabilityCheckThrottle))
 def check_cnic(request):
     """
     GET /api/auth/check-cnic/?cnic=4200012345678
