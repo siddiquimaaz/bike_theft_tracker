@@ -260,44 +260,54 @@ def trigger_reanalysis(request):
     """
     POST /api/ml/trigger-reanalysis/
     Admin triggers hotspot + trend + corridor + radius recompute outside the cron schedule.
-    Runs synchronously — may take a few seconds on large datasets.
+    Runs synchronously so the frontend can refetch immediately after the 200 returns.
     """
-    import threading
+    from .analysis import (
+        run_hotspot_analysis, save_hotspot_cache,
+        run_trend_analytics, save_trend_cache,
+        run_corridor_analysis, save_corridor_cache,
+        run_recovery_radius, save_recovery_radius_cache,
+    )
 
-    def _run():
-        from .analysis import (
-            run_hotspot_analysis, save_hotspot_cache,
-            run_trend_analytics, save_trend_cache,
-            run_corridor_analysis, save_corridor_cache,
-            run_recovery_radius, save_recovery_radius_cache,
-        )
-        try:
-            hotspot_result = run_hotspot_analysis()
-            save_hotspot_cache(hotspot_result)
-            logger.info("Manual reanalysis: hotspot complete")
-        except Exception as exc:
-            logger.error("Manual reanalysis: hotspot failed: %s", exc)
-        try:
-            trend_result = run_trend_analytics()
-            save_trend_cache(trend_result)
-            logger.info("Manual reanalysis: trends complete")
-        except Exception as exc:
-            logger.error("Manual reanalysis: trends failed: %s", exc)
-        try:
-            corridor_result = run_corridor_analysis()
-            save_corridor_cache(corridor_result)
-            logger.info("Manual reanalysis: corridors complete")
-        except Exception as exc:
-            logger.error("Manual reanalysis: corridors failed: %s", exc)
-        try:
-            radius_result = run_recovery_radius()
-            save_recovery_radius_cache(radius_result)
-            logger.info("Manual reanalysis: recovery radius complete")
-        except Exception as exc:
-            logger.error("Manual reanalysis: recovery radius failed: %s", exc)
+    job_results = {}
 
-    threading.Thread(target=_run, daemon=True).start()
+    try:
+        hotspot_result = run_hotspot_analysis()
+        save_hotspot_cache(hotspot_result)
+        job_results["hotspot"] = "ok"
+        logger.info("Manual reanalysis: hotspot complete")
+    except Exception as exc:
+        logger.error("Manual reanalysis: hotspot failed: %s", exc)
+        job_results["hotspot"] = f"error: {exc}"
+
+    try:
+        trend_result = run_trend_analytics()
+        save_trend_cache(trend_result)
+        job_results["trends"] = "ok"
+        logger.info("Manual reanalysis: trends complete")
+    except Exception as exc:
+        logger.error("Manual reanalysis: trends failed: %s", exc)
+        job_results["trends"] = f"error: {exc}"
+
+    try:
+        corridor_result = run_corridor_analysis()
+        save_corridor_cache(corridor_result)
+        job_results["corridors"] = "ok"
+        logger.info("Manual reanalysis: corridors complete")
+    except Exception as exc:
+        logger.error("Manual reanalysis: corridors failed: %s", exc)
+        job_results["corridors"] = f"error: {exc}"
+
+    try:
+        radius_result = run_recovery_radius()
+        save_recovery_radius_cache(radius_result)
+        job_results["radius"] = "ok"
+        logger.info("Manual reanalysis: recovery radius complete")
+    except Exception as exc:
+        logger.error("Manual reanalysis: recovery radius failed: %s", exc)
+        job_results["radius"] = f"error: {exc}"
 
     return Response({
-        "message": "Reanalysis jobs started in background (hotspot, trends, corridors, radius). Results will be available shortly."
+        "message": "Reanalysis complete. Dashboard data is ready.",
+        "results": job_results,
     })

@@ -78,6 +78,9 @@ class SightingListSerializer(serializers.ModelSerializer):
     top_match_info = serializers.SerializerMethodField()
     sighting_latitude = serializers.SerializerMethodField()
     sighting_longitude = serializers.SerializerMethodField()
+    # True when the requesting owner is the owner of the matched bike
+    # (i.e. this is a sighting OF their bike, not BY them)
+    is_about_my_bike = serializers.SerializerMethodField()
 
     class Meta:
         model = SightingReport
@@ -90,6 +93,7 @@ class SightingListSerializer(serializers.ModelSerializer):
             "is_verified", "verified_by_id",
             "owner_confirmation_status", "owner_response_deadline",
             "auto_escalated", "is_archived",
+            "is_about_my_bike",
             "created_at",
         ]
 
@@ -110,6 +114,12 @@ class SightingListSerializer(serializers.ModelSerializer):
 
     def get_sighting_longitude(self, obj):
         return obj.sighting_location.x if obj.sighting_location else None
+
+    def get_is_about_my_bike(self, obj):
+        request = self.context.get("request")
+        if not request or not obj.top_match_bike:
+            return False
+        return obj.top_match_bike.owner_id == request.user.id
 
 
 # ─── Views ────────────────────────────────────────────────────────────────────
@@ -134,13 +144,32 @@ class SightingListCreateView(generics.ListCreateAPIView):
             # Authority/Admin: unverified sightings sorted by match confidence
             return (
                 SightingReport.objects.filter(is_verified=False)
-                .select_related("top_match_bike")
+                .select_related("top_match_bike", "top_match_bike__owner")
                 .order_by("-fuzzy_match_score", "-created_at")
             )
-        # Owner / Community: their own submissions (all statuses so they can track them)
+        if user.is_owner:
+            from django.db.models import Q
+            # Owner sees:
+            #   1. Sightings they personally submitted (community role behaviour)
+            #   2. Unarchived, pending sightings where the top-matched bike is theirs
+            #      (the ones they need to confirm/deny)
+            return (
+                SightingReport.objects.filter(
+                    Q(sighter=user) |
+                    Q(
+                        top_match_bike__owner=user,
+                        owner_confirmation_status="pending",
+                        is_archived=False,
+                    )
+                )
+                .select_related("top_match_bike", "top_match_bike__owner")
+                .distinct()
+                .order_by("-created_at")
+            )
+        # Community: their own submissions only
         return (
             SightingReport.objects.filter(sighter=user)
-            .select_related("top_match_bike")
+            .select_related("top_match_bike", "top_match_bike__owner")
             .order_by("-created_at")
         )
 
@@ -160,10 +189,16 @@ class SightingDetailView(generics.RetrieveAPIView):
 
     def get_queryset(self):
         user = self.request.user
-        qs = SightingReport.objects.select_related("top_match_bike", "sighter")
+        qs = SightingReport.objects.select_related("top_match_bike", "top_match_bike__owner", "sighter")
         if user.is_authority or user.is_admin:
             return qs
-        # Owner/Community can only retrieve their own submissions.
+        if user.is_owner:
+            from django.db.models import Q
+            # Owner can retrieve sightings they submitted OR sightings of their bikes
+            return qs.filter(
+                Q(sighter=user) | Q(top_match_bike__owner=user)
+            )
+        # Community can only retrieve their own submissions.
         return qs.filter(sighter=user)
 
 

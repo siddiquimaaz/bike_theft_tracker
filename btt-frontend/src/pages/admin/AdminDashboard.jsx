@@ -6,13 +6,18 @@ import { useState } from 'react';
 
 export default function AdminDashboard() {
   const { data, loading, refetch } = useFetch(getAnalytics, []);
-  const { data: rrData }           = useFetch(getRecoveryRadius, []);   // national
-  const { data: corData }          = useFetch(getCorridors, []);        // national
+  const { data: rrData,  refetch: refetchRR  } = useFetch(getRecoveryRadius, []);  // national
+  const { data: corData, refetch: refetchCor } = useFetch(getCorridors, []);       // national
   const [triggering, setTriggering] = useState(false);
 
   async function handleReanalysis() {
     setTriggering(true);
-    try { await triggerReanalysis(); alert('ML reanalysis triggered successfully.'); }
+    try {
+      await triggerReanalysis();
+      // Analysis is now synchronous — refetch immediately so the cards update
+      await Promise.all([refetchRR(), refetchCor()]);
+      alert('ML reanalysis complete. Dashboard updated.');
+    }
     catch (err) { alert(err.response?.data?.detail ?? err.message); }
     finally { setTriggering(false); }
   }
@@ -30,9 +35,9 @@ export default function AdminDashboard() {
 
   const activeCount = (rep.stolen ?? 0) + (rep.under_investigation ?? 0);
 
-  // ML insight strips — null when cache is pending (202)
-  const radius     = rrData?.status === 202 ? null : rrData?.data;
-  const corResult  = corData?.status === 202 ? null : corData?.data;
+  // ML insight strips — null when cache is pending (backend returns { data: null })
+  const radius    = rrData?.data ?? null;
+  const corResult = corData?.data ?? null;
   const dominant   = corResult?.corridors?.[0] ?? null;
 
   return (

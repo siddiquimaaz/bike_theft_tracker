@@ -59,7 +59,10 @@ export const STATUS_COLORS = {
   closed:              'gray',
 };
 
-// The legal status transitions for authority
+// The legal status transitions for authority (one-step forward advance).
+// NOTE: Authority officers cannot close a case — only the bike owner (via
+// recovery confirmation) or an admin can do that.  There is intentionally
+// no entry for 'recovered' here: the next action belongs to the owner.
 export const STATUS_TRANSITIONS = {
   // Legacy path (seeded data)
   stolen:               'under_investigation',
@@ -70,7 +73,7 @@ export const STATUS_TRANSITIONS = {
   active_investigation: 'bike_located',
   bike_located:         'pending_verification',
   pending_verification: 'recovered',
-  recovered:           'closed',
+  // recovered → closed is owner-only; no entry here deliberately
 };
 
 export const MATCH_CONFIDENCE_COLORS = {

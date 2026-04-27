@@ -146,20 +146,23 @@ by Admin. Manages the entire case lifecycle from intake to recovery.
 > *As an Authority, I want to move a case from `new_case` through the
 > investigation pipeline to `bike_located` so the system reflects real progress.*
 
-Status machine:
+Status machine (authority-reachable transitions shown with →; owner/admin-only shown with ⇒):
 ```
 new_case → under_review → active_investigation → bike_located
-                                                     ↓
+                                                     ↓ (log recovery)
                                            pending_verification
                                                      ↓
                                                  recovered
                                                      ↓
-                                                   closed
+                                     ⇒ closed  (owner confirm OR admin override only)
 ```
 
 - `PUT /api/reports/{id}/status/` with `{status: "under_review"}`.
 - Invalid transitions (e.g., skipping steps) return 400.
 - Only the officer assigned to that city can transition; cross-city returns 403/404.
+- **Authority cannot set `closed`** — doing so returns HTTP 403 with an error message
+  directing them to the owner-confirmation flow. Only the bike owner (via
+  `PUT /api/reports/{id}/recovery/confirm/`) or an admin can close a case.
 - **Tests:** `test_authority_transitions_new_case_to_under_review`,
   `test_authority_chains_under_review_to_active_investigation`,
   `test_invalid_status_transition_rejected`,
@@ -167,7 +170,8 @@ new_case → under_review → active_investigation → bike_located
   `test_owner_cannot_change_report_status`,
   `test_regression_under_review_to_new_case_returns_400`,
   `test_any_transition_on_closed_case_returns_400`,
-  `test_direct_closure_from_new_case_is_allowed`
+  `test_authority_cannot_close_case_directly`,
+  `test_admin_can_close_case_directly`
 
 ---
 
@@ -323,6 +327,12 @@ for any theft report.
 - `not_sure` → sighting stays open for auto-escalation after deadline.
 - Only the matched bike's owner can respond; cross-owner and Authority are blocked.
 - Double confirmation returns 400.
+- **UI (ReportsPage):** Pending sightings of the owner's bike appear as an amber-bordered
+  section above the reports table with three action buttons per sighting:
+  ✅ *That's my bike* / ❌ *Not my bike* / 🤷 *Not sure*. The section is hidden when
+  there are no pending sightings. The backend `GET /api/sightings/` now returns both
+  sightings submitted *by* the owner and sightings *of* their bike pending confirmation
+  (flagged `is_about_my_bike: true`).
 - **Tests:** `test_owner_responds_yes_sets_confirmation_status`,
   `test_owner_responds_no_archives_sighting`,
   `test_owner_handshake_not_sure`,
@@ -342,6 +352,9 @@ for any theft report.
 - Triggers a thank-you `COMMUNITY_CLOSURE` notification to all community
   sighters who contributed to this case.
 - Another owner, Authority, or Community cannot call this endpoint.
+- **Admin fallback:** if the owner is unresponsive, an admin can close the case
+  via `PUT /api/reports/{id}/status/` with `{status: "closed"}`. Authority
+  cannot do this — the 403 guard is authority-specific, not admin-specific.
 - **Tests:** `test_owner_confirm_recovery_closes_case`,
   `test_owner_confirm_recovery_updates_transition_audit_fields`,
   `test_owner_confirms_recovery_case_becomes_closed`,
@@ -502,7 +515,7 @@ Event 6 ─── Owner confirms pickup
 | `test_notifications.py` | 36 | All notification types, read/unread, cross-role isolation |
 | `test_admin.py` | 25 | User CRUD, analytics, audit log, RBAC enforcement |
 | `test_ml.py` | 33 | Fuzzy match accuracy, hotspot API, trends, recovery zones |
-| `test_inter_role_sync.py` | 65 | Cross-role data isolation, full lifecycle, full demo narrative |
+| `test_inter_role_sync.py` | 67 | Cross-role data isolation, full lifecycle, full demo narrative |
 | `test_case_timeline.py` | 1 | Timeline audit trail |
 | `test_coverage_boost.py` | 10 | Edge cases and serializer branches |
 | `test_security.py` | 22 | Auth hardening, throttle, RBAC exhaustive |
@@ -510,7 +523,7 @@ Event 6 ─── Owner confirms pickup
 | `test_fuzzy_match.py` | 15 | WRatio scoring accuracy at various thresholds |
 | `test_theft_alert_notifications.py` | 16 | City-scoped theft alert fan-out (owner/authority/community) |
 | `test_ml_corridors.py` | 21 | Recovery radius + corridor analysis endpoints + unit tests |
-| **Total** | **378** | **≥90% coverage — threshold met ✅** |
+| **Total** | **380** | **≥90% coverage — threshold met ✅** |
 
 ---
 

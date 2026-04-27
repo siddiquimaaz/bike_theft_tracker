@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useFetch }   from '../../hooks/useFetch';
 import { getReports, getReport } from '../../api/reportApi';
+import { getSightings, ownerConfirmSighting } from '../../api/sightingApi';
 import { Button, Modal, EmptyState, Spinner } from '../../components/UI';
 import Badge  from '../../components/UI/Badge';
 import ReportForm from '../../components/forms/ReportForm';
@@ -11,6 +12,28 @@ import CaseTimeline from '../../components/timeline/CaseTimeline';
 export default function ReportsPage() {
   const { data, loading, refetch } = useFetch(getReports, []);
   const reports = data?.results ?? data ?? [];
+
+  // Sightings of my bikes that still need owner confirmation
+  const { data: sightingsData, refetch: refetchSightings } = useFetch(getSightings, []);
+  const allSightings = sightingsData?.results ?? sightingsData ?? [];
+  const pendingSightings = allSightings.filter(
+    (s) => s.is_about_my_bike && s.owner_confirmation_status === 'pending'
+  );
+
+  const [confirmingId, setConfirmingId] = useState(null);
+
+  async function handleConfirm(sightingId, response) {
+    setConfirmingId(sightingId);
+    try {
+      await ownerConfirmSighting(sightingId, response);
+      refetchSightings();
+    } catch (err) {
+      alert(err.response?.data?.error ?? 'Failed to submit response.');
+    } finally {
+      setConfirmingId(null);
+    }
+  }
+
   const [showFile, setShowFile] = useState(false);
   const [detail,   setDetail]   = useState(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
@@ -34,6 +57,56 @@ export default function ReportsPage() {
         </div>
         <Button variant="primary" onClick={() => setShowFile(true)}>+ File Report</Button>
       </div>
+
+      {/* ── Pending sightings needing owner response ─────────────────────── */}
+      {pendingSightings.length > 0 && (
+        <div className="card mb-6" style={{ borderColor: 'rgba(251,191,36,.3)', border: '1px solid rgba(251,191,36,.3)' }}>
+          <h2 className="font-heading font-semibold text-sm text-amber-300 mb-4">
+            🔔 Sightings Awaiting Your Response ({pendingSightings.length})
+          </h2>
+          <div className="flex flex-col gap-3">
+            {pendingSightings.map((s) => (
+              <div key={s.id} className="rounded-lg p-4 flex items-start justify-between gap-4 bg-white/[.04]">
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-semibold text-gray-100">
+                    {s.top_match_info?.make} {s.top_match_info?.model} spotted in {s.sighting_city}
+                  </div>
+                  <div className="text-xs text-muted mt-1">
+                    {formatDate(s.sighting_date)}
+                    {s.raw_engine_number && <> · Reported engine: <span className="mono">{s.raw_engine_number}</span></>}
+                    {s.fuzzy_match_score != null && <> · Match score: <span className="mono">{Number(s.fuzzy_match_score).toFixed(1)}</span></>}
+                  </div>
+                  {s.sighting_description && (
+                    <div className="text-xs text-faint mt-1 line-clamp-2">{s.sighting_description}</div>
+                  )}
+                  {s.owner_response_deadline && (
+                    <div className="text-xs text-amber-400/70 mt-1">
+                      ⏱ Respond by {formatDate(s.owner_response_deadline)} — authority will act on your answer
+                    </div>
+                  )}
+                </div>
+                <div className="flex gap-2 flex-shrink-0 flex-wrap justify-end">
+                  <button
+                    disabled={confirmingId === s.id}
+                    className="px-3 py-1.5 rounded text-xs font-semibold bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/40 border border-emerald-600/30 disabled:opacity-50"
+                    onClick={() => handleConfirm(s.id, 'yes')}
+                  >✅ That's my bike</button>
+                  <button
+                    disabled={confirmingId === s.id}
+                    className="px-3 py-1.5 rounded text-xs font-semibold bg-red-600/20 text-red-400 hover:bg-red-600/40 border border-red-600/30 disabled:opacity-50"
+                    onClick={() => handleConfirm(s.id, 'no')}
+                  >❌ Not my bike</button>
+                  <button
+                    disabled={confirmingId === s.id}
+                    className="px-3 py-1.5 rounded text-xs font-semibold bg-gray-600/20 text-gray-400 hover:bg-gray-600/40 border border-gray-600/30 disabled:opacity-50"
+                    onClick={() => handleConfirm(s.id, 'not_sure')}
+                  >🤷 Not sure</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {loading ? <Spinner /> : (
         <div className="card p-0 overflow-hidden">

@@ -98,6 +98,12 @@ Important seed note:
   - `new_case -> under_review`
   - `under_review -> active_investigation`
   - `active_investigation -> bike_located`
+- **Authority cannot set `closed`** — the view blocks it with HTTP 403. When
+  a case reaches `pending_verification` or `recovered`, the authority CaseReportsPage
+  shows an amber info banner: *"Awaiting owner confirmation — the bike owner must
+  confirm receipt to close this case."*
+- Only **the bike owner** (via `PUT /api/reports/{id}/recovery/confirm/`) or an
+  **admin** (via the status endpoint) can transition a case to `closed`.
 
 ### 3.4 Authority logs recovery
 
@@ -113,7 +119,14 @@ Important seed note:
 
 ### 3.5 Owner confirms recovery and closure
 
-- `PUT /api/reports/{id}/recovery/confirm/`
+- **In-app (ReportsPage):** When authority logs a recovery, pending sightings of the
+  owner's bike appear as an amber-bordered section at the top of the owner's ReportsPage
+  — above the reports table — with three action buttons per sighting:
+  ✅ *That's my bike* / ❌ *Not my bike* / 🤷 *Not sure*.
+  Clicking a button calls `PUT /api/sightings/{id}/owner-confirm/` and the section
+  auto-refreshes. This section only appears when there are pending sightings waiting for
+  the owner's response (`is_about_my_bike=true`, `owner_confirmation_status='pending'`).
+- **API closure:** `PUT /api/reports/{id}/recovery/confirm/`
 - Owner confirms receipt; report transitions to `closed`.
 - Contributor closure notifications are sent to relevant community contributors.
 
@@ -223,7 +236,13 @@ Known timeline caveat:
 - Admin oversight endpoints:
   - `GET /api/admin/analytics/`
   - `GET /api/admin/audit-logs/`
-- Admin can move case status via report status endpoint where transitions allow.
+- Admin can move case status via report status endpoint where transitions allow, **including
+  setting `closed`** — this is the admin override path for exceptional circumstances
+  (e.g., owner is unreachable/unresponsive after the bike has been recovered).
+- Authority cannot close a case — the `PUT /api/reports/{id}/status/` view blocks
+  `status=closed` for authority users with HTTP 403. Admin is not restricted.
+- Admin can trigger a full ML reanalysis (`POST /api/ml/trigger-reanalysis/`); this now
+  runs synchronously and returns HTTP 200 only after all caches are written.
 - Audit and timeline records provide operational traceability.
 
 ---
@@ -242,6 +261,17 @@ Resolved in current build:
 - Duplicate `report_filed` timeline write removed.
 - Recovery confirm now closes through `transition_status`.
 - Owner handshake route is guarded by `IsOwner` (regression-tested).
+- **Authority cannot close cases directly** — `PUT /api/reports/{id}/status/` returns
+  HTTP 403 for authority users when `status=closed`; only owner confirm or admin override
+  can close (regression-tested: `test_authority_cannot_close_case_directly`,
+  `test_admin_can_close_case_directly`).
+- **Owner sighting CTA** — ReportsPage now shows pending sightings of the owner's bike
+  with ✅ / ❌ / 🤷 response buttons; backend `GET /api/sightings/` expanded to include
+  sightings of owner's bike (`is_about_my_bike` flag added).
+- **ML trigger is now synchronous** — `trigger_reanalysis` writes all caches before
+  returning 200; dashboards refetch immediately after trigger (no stale 202 state).
+- **Password reset** uses `new_password` + `confirm_password` fields (frontend fixed to
+  match the `PasswordResetConfirmSerializer` contract).
 
 ---
 
@@ -259,6 +289,9 @@ Use this sequence for a stable live demo in 10-15 minutes.
    - Submit a sighting with partial identifier and (ideally) photo.
 5. Return to Owner:
    - Open handshake notification and respond (`yes` for escalation path).
+   - Alternatively: navigate to **My Reports** — a pending sighting of the owner's
+     bike appears in an amber-bordered section above the reports table. Click
+     ✅ *That's my bike* to confirm (or ❌ / 🤷 for other paths).
 6. Login as Authority (`authority.karachi@demo.btt`):
    - Open sightings/reports queue.
    - Advance report statuses explicitly:
@@ -267,14 +300,19 @@ Use this sequence for a stable live demo in 10-15 minutes.
      - `active_investigation -> bike_located`
 7. Authority logs recovery:
    - Case moves to `pending_verification`.
+   - Note: after this point, the authority UI shows an amber banner:
+     *"Awaiting owner confirmation"* — they cannot advance further.
 8. Back to Owner:
-   - Open recovery notification/request from notifications screen.
+   - Open recovery notification/request from notifications screen, **or** go to
+     **My Reports** where the pending sighting card reappears.
    - Confirm recovery via `/recovery/confirm/`.
    - Case closes (closure notification to contributors is triggered here).
 9. Back to Community:
    - Show contributor closure notification.
 10. Login as Admin:
-   - Show analytics and audit logs for oversight view.
+    - Show analytics and audit logs for oversight view.
+    - (Optional) demonstrate admin close override: if owner is unresponsive, admin
+      can set `status=closed` directly via `PUT /api/reports/{id}/status/`.
 
 If using `seed_demo_data`:
 
@@ -292,7 +330,7 @@ If using `seed_demo_data`:
 - Sighting handshake and escalation behavior is observable.
 - Recovery confirm closes case and triggers contributor closure notifications.
 - Admin visibility into analytics/audit is available.
-- 341 tests passing (backend pytest suite, ≥80% coverage gate).
+- 380 tests passing (backend pytest suite, ≥90% coverage gate).
 
 ---
 
@@ -302,10 +340,12 @@ If using `seed_demo_data`:
 |---|---|---|
 | `POST /api/reports/{id}/recovery/` | Report status is not allowed for recovery logging | Move case to `active_investigation` or `bike_located` first, then retry |
 | `PUT /api/reports/{id}/status/` | Invalid transition for current status | Check current status and apply only the next valid transition in sequence |
+| `PUT /api/reports/{id}/status/` **(403)** | Authority officer attempting to set `status=closed` | Authority cannot close cases — wait for owner to confirm receipt, or ask admin to override |
 | `PUT /api/reports/{id}/recovery/confirm/` | Case is not in `pending_verification` or `recovered` | Ensure Authority logged recovery first and case moved to `pending_verification` |
 | `PUT /api/sightings/{id}/owner-confirm/` | Requesting user is not the matched bike owner | Login as the actual owner of `top_match_bike` before confirming |
 | `PUT /api/sightings/{id}/owner-confirm/` | Caller is not owner role (`IsOwner` guard) | Use verified owner account; authority/community/admin are rejected |
 | `PUT /api/sightings/{id}/owner-confirm/` | Invalid `response` value | Use only `yes`, `no`, or `not_sure` |
+| `POST /api/auth/password-reset/confirm/` | Wrong field names | Use `new_password` + `confirm_password` (not `password`) |
 | `POST /api/auth/verify-email/{token}/` | Token expired, invalid, or already used | Re-register/reissue token and verify again within validity window |
 | `POST /api/bikes/` | Owner account not verified yet | Complete email verification, re-login, then retry |
 

@@ -146,9 +146,26 @@ def update_report_status(request, pk):
     serializer = StatusUpdateSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
 
+    new_status = serializer.validated_data["status"]
+
+    # Authority officers cannot directly close a case — closure requires either
+    # the bike owner to confirm receipt (via /recovery/confirm/) or an admin to
+    # intervene.  Admins retain the override right for exceptional circumstances.
+    if request.user.is_authority and new_status == TheftReport.Status.CLOSED:
+        return Response(
+            {
+                "error": (
+                    "Authority officers cannot close a case directly. "
+                    "The bike owner must confirm receipt via the recovery confirmation flow, "
+                    "or an admin must close the case."
+                )
+            },
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
     try:
         old_status = report.transition_status(
-            serializer.validated_data["status"],
+            new_status,
             changed_by=request.user,
         )
     except ValueError as exc:

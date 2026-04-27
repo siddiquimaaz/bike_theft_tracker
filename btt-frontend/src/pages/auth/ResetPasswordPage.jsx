@@ -16,7 +16,7 @@ export default function ResetPasswordPage() {
     e.preventDefault();
     if (form.password !== form.confirm) { setError("Passwords don't match."); return; }
     setLoading(true);
-    try { await resetPassword(token, { password: form.password }); navigate('/login'); }
+    try { await resetPassword(token, { new_password: form.password, confirm_password: form.confirm }); navigate('/login'); }
     catch (err) { setError(err.response?.data?.detail ?? err.message); }
     finally { setLoading(false); }
   }

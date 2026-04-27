@@ -99,6 +99,12 @@ export default function CaseReportsPage() {
               <Button variant="green" onClick={() => setRecovering(true)}>📍 Log Recovery</Button>
             )}
           </div>
+          {(detail.status === 'pending_verification' || detail.status === 'recovered') && (
+            <div className="mt-4 px-3 py-2 rounded bg-amber-400/10 border border-amber-400/30 text-xs text-amber-300">
+              ⏳ Awaiting owner confirmation — the bike owner must confirm receipt to close this case.
+              If the owner is unresponsive, an admin can close it on their behalf.
+            </div>
+          )}
           <CaseTimeline events={detail.timeline ?? []} />
         </Modal>
       )}

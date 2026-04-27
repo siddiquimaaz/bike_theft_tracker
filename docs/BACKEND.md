@@ -8,6 +8,8 @@ This project’s back-end is a **Django 4.2 + Django REST Framework** API that p
   - Registers users (primarily **Owner** and **Community** roles).
   - Logs users in and issues **JWT access/refresh tokens**.
   - Supports email verification + password reset flows (project-supported endpoints).
+    Password reset confirmation (`POST /api/auth/password-reset/confirm/`) expects the body
+    `{ "new_password": "...", "confirm_password": "..." }` — not a plain `password` field.
   - Enforces role-based permissions on endpoints (Owner/Authority/Admin/Community).
 
 - **Bike registration (Owner)**
@@ -19,6 +21,13 @@ This project’s back-end is a **Django 4.2 + Django REST Framework** API that p
   - Authorities manage the report lifecycle through the modern state machine:
     *new_case → under_review → active_investigation → bike_located → pending_verification → recovered → closed*.
     Legacy values (`stolen`, `under_investigation`) remain accepted on older reports for backwards compatibility.
+  - **Authority cannot close a case directly.** `PUT /api/reports/{id}/status/` blocks
+    `status=closed` for authority users and returns HTTP 403. Closure requires either:
+    (a) the bike owner confirming receipt via `PUT /api/reports/{id}/recovery/confirm/`
+    (transitions to `closed`, sets `owner_recovery_confirmed=True`), or (b) an admin
+    using the status endpoint as an exceptional override for unresponsive owners.
+    The CaseReportsPage authority UI shows an amber info banner on `pending_verification`
+    and `recovered` cases explaining that owner confirmation is required.
   - Recovery details can be recorded and viewed (role-scoped); the owner finalises closure via
     `PUT /api/reports/<id>/recovery/confirm/`, which transitions the case to `closed` and broadcasts a
     thank-you to community contributors.
@@ -32,6 +41,12 @@ This project’s back-end is a **Django 4.2 + Django REST Framework** API that p
     `yes` / `no` / `not_sure`. `yes` triggers an URGENT escalation to authorities;
     `not_sure` keeps the sighting open and auditable; missed-deadline sightings are
     auto-escalated by `auto_escalate_pending_owner_responses()`.
+  - **Owner sighting visibility**: `GET /api/sightings/` for owner accounts returns both
+    sightings submitted *by* the owner and sightings *of* their stolen bike that are pending
+    owner confirmation (`owner_confirmation_status='pending'`, `is_archived=False`). Each
+    sighting record includes an `is_about_my_bike` boolean flag. The frontend ReportsPage
+    renders pending-confirmation sightings as an amber-bordered card section above the
+    reports table with ✅ / ❌ / 🤷 response buttons.
 
 - **Notifications (all authenticated roles)**
   - Produces notifications for key events (e.g., status updates, verified sightings).
@@ -44,7 +59,10 @@ This project’s back-end is a **Django 4.2 + Django REST Framework** API that p
   - **Recovery radius** — mean/median km distance between theft and recovery location (city-scoped).
   - **Corridor analysis** — DBSCAN on theft→recovery displacement vectors; identifies dominant movement directions (bearing + distance).
   - **Recovery zones** — PostGIS ST_DWithin query returning historical recovery points near a given location.
-  - Admin can trigger full reanalysis (hotspot + trends + corridors + radius) on-demand.
+  - Admin can trigger full reanalysis (hotspot + trends + corridors + radius) on-demand via
+    `POST /api/ml/trigger-reanalysis/`. Reanalysis runs **synchronously** — the endpoint
+    returns HTTP 200 only after all four caches have been written, so the frontend can
+    immediately refetch dashboards without polling or receiving stale 202 responses.
   - All heavy computation is cached in `MLAnalysisCache`; dashboards read from cache only.
 
 ## Data & infrastructure

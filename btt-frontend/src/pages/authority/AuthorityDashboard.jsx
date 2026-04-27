@@ -26,8 +26,9 @@ export default function AuthorityDashboard() {
 
   const { data: rd, loading: lr } = useFetch(getReports,   []);
   const { data: sd, loading: ls } = useFetch(getSightings, []);
-  const { data: rrData }          = useFetch(getRecoveryRadius, [city], city);
-  const { data: corData }         = useFetch(getCorridors,      [city], city);
+  // Pass city via arrow-function closure so useFetch actually forwards it
+  const { data: rrData }  = useFetch(() => getRecoveryRadius(city), [city]);
+  const { data: corData } = useFetch(() => getCorridors(city),      [city]);
 
   const reports   = rd?.results ?? rd ?? [];
   const sightings = sd?.results ?? sd ?? [];
@@ -36,10 +37,9 @@ export default function AuthorityDashboard() {
   const ongoing = reports.filter((r) => r.status === 'under_investigation').length;
   const pending = sightings.filter((s) => !s.is_verified).length;
 
-  // ML: recovery radius stats (202 = cache pending → null)
-  const radius  = rrData?.status === 202 ? null : rrData?.data;
-  // ML: corridor analysis (dominant corridor from clusters array)
-  const corResult = corData?.status === 202 ? null : corData?.data;
+  // ML: null when cache is pending (backend returns { data: null })
+  const radius    = rrData?.data ?? null;
+  const corResult = corData?.data ?? null;
   const dominant  = corResult?.corridors?.[0] ?? null;
   const overallStats = corResult?.overall_stats ?? null;
 

@@ -798,10 +798,10 @@ class TestRecoveryFlowMultiRole:
         assert resp.status_code == 403
 
     def test_recovery_confirm_on_closed_report_returns_400(
-        self, owner_client, authority_client, sample_report
+        self, owner_client, admin_client, sample_report
     ):
-        # Close the case directly from new_case
-        authority_client.put(
+        # Admin closes the case (authority no longer can do this directly)
+        admin_client.put(
             f"/api/reports/{sample_report.id}/status/",
             {"status": "closed"}, format="json"
         )
@@ -963,14 +963,27 @@ def test_case_closure_notifies_community_contributors(
 class TestInvalidStatusTransitions:
     """State machine rejects illegal jumps."""
 
-    def test_direct_closure_from_new_case_is_allowed(
+    def test_authority_cannot_close_case_directly(
         self, authority_client, sample_report
     ):
+        """Authority must never bypass the owner-confirmation flow by closing directly."""
         resp = authority_client.put(
             f"/api/reports/{sample_report.id}/status/",
             {"status": "closed"}, format="json"
         )
+        assert resp.status_code == 403
+        assert "owner" in resp.data.get("error", "").lower()
+
+    def test_admin_can_close_case_directly(
+        self, admin_client, sample_report
+    ):
+        """Admin retains the override right to close a case at any stage."""
+        resp = admin_client.put(
+            f"/api/reports/{sample_report.id}/status/",
+            {"status": "closed"}, format="json"
+        )
         assert resp.status_code == 200
+        assert resp.data["new_status"] == "closed"
 
     def test_regression_under_review_to_new_case_returns_400(
         self, authority_client, sample_report
@@ -987,12 +1000,14 @@ class TestInvalidStatusTransitions:
         assert "Cannot transition" in resp.data.get("error", "")
 
     def test_any_transition_on_closed_case_returns_400(
-        self, authority_client, sample_report
+        self, authority_client, admin_client, sample_report
     ):
-        authority_client.put(
+        # Admin closes the case first (authority cannot do this directly)
+        admin_client.put(
             f"/api/reports/{sample_report.id}/status/",
             {"status": "closed"}, format="json"
         )
+        # Now authority tries to re-open — must be rejected
         resp = authority_client.put(
             f"/api/reports/{sample_report.id}/status/",
             {"status": "under_review"}, format="json"
