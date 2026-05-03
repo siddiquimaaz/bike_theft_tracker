@@ -125,12 +125,51 @@ class TheftReportDetailView(generics.RetrieveDestroyAPIView):
         )
 
 
+# ─── Authority role transition allowlist ──────────────────────────────────────
+#
+# Single source of truth for what an authority officer may do via the status
+# endpoint.  This mirrors STATUS_TRANSITIONS in btt-frontend/src/utils/constants.js.
+#
+# Design rationale
+# ────────────────
+# The model's transition_status() is intentionally role-agnostic — it only
+# enforces state-machine physics (e.g. no backward jumps).  Admin users need
+# the full freedom that provides (any-state → closed override etc.).
+#
+# Rather than accumulating ad-hoc if-checks every time we discover a new
+# authority privilege violation, we define the *exact* set of transitions
+# authority is permitted and reject anything outside that set with a single
+# whitelist check.  This means:
+#   • Adding a new status later just requires updating this dict — no hunting
+#     through if-statements.
+#   • Authority can ONLY advance forward through the investigation pipeline.
+#   • Everything past pending_verification (owner-confirmation flow) is
+#     automatically blocked without any extra code.
+#
+# To grant authority a new transition, add it here AND to STATUS_TRANSITIONS
+# in constants.js so frontend and backend stay in sync.
+AUTHORITY_ALLOWED_TRANSITIONS: dict[str, list[str]] = {
+    # Legacy seeded data
+    TheftReport.Status.STOLEN:               [TheftReport.Status.UNDER_INVESTIGATION],
+    # Modern pipeline
+    TheftReport.Status.NEW_CASE:             [TheftReport.Status.UNDER_REVIEW],
+    TheftReport.Status.UNDER_REVIEW:         [TheftReport.Status.ACTIVE_INVESTIGATION],
+    TheftReport.Status.ACTIVE_INVESTIGATION: [TheftReport.Status.BIKE_LOCATED],
+    TheftReport.Status.BIKE_LOCATED:         [TheftReport.Status.PENDING_VERIFICATION],
+    # pending_verification → owner confirm (/recovery/confirm/) or admin override
+    # recovered            → owner confirm (/recovery/confirm/) or admin override
+    # closed               → terminal; no transitions allowed
+}
+
+
 @api_view(["PUT"])
 @permission_classes([IsAuthorityOrAdmin])
 def update_report_status(request, pk):
     """
     PUT /api/reports/{id}/status/
     Transitions report through the state machine.
+    Authority is limited to AUTHORITY_ALLOWED_TRANSITIONS above.
+    Admin retains full override rights (any valid physics transition).
     """
     queryset = TheftReport.objects.filter(deleted_at__isnull=True)
     if request.user.is_authority:
@@ -148,36 +187,26 @@ def update_report_status(request, pk):
 
     new_status = serializer.validated_data["status"]
 
-    # Authority officers cannot bypass the owner-confirmation workflow.
-    # Specifically:
-    #   • Cannot set `closed`   — owner must confirm receipt or admin must override.
-    #   • Cannot set `recovered` when current status is pending_verification —
-    #     that transition belongs to the owner's /recovery/confirm/ endpoint;
-    #     authority jumping straight from pending_verification to recovered would
-    #     let them declare a case resolved without the owner ever acknowledging it.
-    # Admins retain full override rights for exceptional circumstances.
+    # Whitelist check — authority can only use transitions explicitly listed above.
+    # Admin bypasses this check and goes straight to the model's transition_status().
     if request.user.is_authority:
-        if new_status == TheftReport.Status.CLOSED:
+        allowed = AUTHORITY_ALLOWED_TRANSITIONS.get(report.status, [])
+        if new_status not in allowed:
+            allowed_values = [s.value if hasattr(s, "value") else s for s in allowed]
+            if allowed_values:
+                next_hint = f"Permitted next status from this state: {allowed_values}."
+            else:
+                next_hint = (
+                    "No further authority actions are permitted from this state. "
+                    "The bike owner must confirm receipt via /recovery/confirm/, "
+                    "or an admin can intervene."
+                )
             return Response(
                 {
                     "error": (
-                        "Authority officers cannot close a case directly. "
-                        "The bike owner must confirm receipt via the recovery confirmation flow, "
-                        "or an admin must close the case."
-                    )
-                },
-                status=status.HTTP_403_FORBIDDEN,
-            )
-        if (
-            new_status == TheftReport.Status.RECOVERED
-            and report.status == TheftReport.Status.PENDING_VERIFICATION
-        ):
-            return Response(
-                {
-                    "error": (
-                        "This case is awaiting owner confirmation. "
-                        "The bike owner must confirm receipt via the recovery confirmation flow. "
-                        "Authorities cannot advance the status past pending_verification."
+                        f"Authority officers cannot set status '{new_status}' "
+                        f"on a case currently in '{report.status}'. "
+                        f"{next_hint}"
                     )
                 },
                 status=status.HTTP_403_FORBIDDEN,

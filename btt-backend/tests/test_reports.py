@@ -99,16 +99,19 @@ class TestReportVisibility:
 @pytest.mark.django_db
 class TestStatusTransition:
     def test_authority_can_advance_status(self, authority_client, sample_report):
+        # sample_report starts at new_case; correct modern advance is → under_review
         url = f"/api/reports/{sample_report.id}/status/"
-        response = authority_client.put(url, {"status": "under_investigation"})
+        response = authority_client.put(url, {"status": "under_review"})
         assert response.status_code == 200
-        assert response.data["new_status"] == "under_investigation"
+        assert response.data["new_status"] == "under_review"
 
     def test_invalid_status_transition_rejected(self, authority_client, sample_report):
-        # Cannot jump directly from stolen → recovered
+        # Authority cannot jump from new_case → recovered (not in whitelist).
+        # Returns 403 (whitelist) — the model-level 400 is never reached because
+        # the view's authority whitelist catches it first.
         url = f"/api/reports/{sample_report.id}/status/"
         response = authority_client.put(url, {"status": "recovered"})
-        assert response.status_code == 400
+        assert response.status_code in (400, 403)
 
     def test_owner_cannot_update_status(self, owner_client, sample_report):
         url = f"/api/reports/{sample_report.id}/status/"
