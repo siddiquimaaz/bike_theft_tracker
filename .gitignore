@@ -65,3 +65,7 @@ pgsql/
 
 # Claude Code memory
 .claude/
+
+# FYP/university document — kept locally, not in repo
+docs/FYP Document.docx
+docs/*.docx

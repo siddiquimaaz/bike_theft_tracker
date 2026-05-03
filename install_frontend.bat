@@ -14,6 +14,6 @@ if %ERRORLEVEL% NEQ 0 ( echo Playwright install failed. & exit /b 1 )
 
 echo.
 echo ── All done! ────────────────────────────────────────────────────
-echo   Run:  start_dev.bat          to start both servers
+echo   Run:  start.bat               to start both servers
 echo   Run:  run_tests.bat          to run E2E tests
 echo.

@@ -392,11 +392,11 @@ Successful response:
 python -m pytest tests/
 ```
 
-**Expected result:** All 241 tests passing, ≥ 80% coverage.
+**Expected result:** All 381 tests passing, ≥ 90% coverage.
 
 ```
-================= 241 passed in 98.58s (0:01:38) ===================
-Required test coverage of 80% reached. Total coverage: 80.08%
+================= 381 passed in 659.91s (0:10:59) ==================
+Required test coverage of 90% reached. Total coverage: 90.78%
 ```
 
 ---

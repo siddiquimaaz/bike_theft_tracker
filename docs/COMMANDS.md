@@ -910,7 +910,7 @@ cd btt-backend
 ```
 
 ```cmd
-:: Run all tests (378 tests, requires 90% coverage to pass)
+:: Run all tests (381 tests, requires 90% coverage to pass)
 pytest
 
 :: Run with short traceback (faster output)
@@ -1086,7 +1086,7 @@ for /f "tokens=5" %a in ('netstat -aon ^| findstr ":3000 "') do taskkill /PID %a
 ```
 Or just run `start.bat` which does this automatically.
 
-### Pytest coverage is below 80%
+### Pytest coverage is below 90%
 ```cmd
 :: Check what's not covered
 pytest --cov-report=term-missing

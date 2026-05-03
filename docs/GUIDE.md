@@ -55,7 +55,7 @@ C:\Users\Maaz\localdev\postgresql-15\pgsql\bin\pg_ctl.exe ^
   start
 ```
 
-Or just double-click **`start_dev.bat`** in the project root — it starts PostgreSQL and the Django server in one go.
+Or just double-click **`start.bat`** in the project root — it starts PostgreSQL and the Django server in one go.
 
 ### Step 2 — Activate the Virtual Environment
 
@@ -77,7 +77,7 @@ API is live at: **http://localhost:8000/api/**
 python -m pytest tests/
 ```
 
-Expected: **341 tests, 80%+ coverage**.
+Expected: **381 tests, 90%+ coverage**.
 
 ### Step 5 — Stop PostgreSQL when done
 
@@ -473,18 +473,25 @@ Visit http://localhost:8000/admin/ — log in with the superuser account you cre
 | POST | `/` | Owner | File a theft report for your bike |
 | GET | `/` | Owner / Authority / Admin | Owner → own reports; Authority → city reports; Admin → all |
 | GET | `/{id}/` | Any logged-in | Full report detail |
-| PUT | `/{id}/status/` | Authority / Admin | Advance status (`stolen → under_investigation → recovered → closed`) |
+| PUT | `/{id}/status/` | Authority / Admin | Advance status through the investigation pipeline (see Status Machine below) |
 | DELETE | `/{id}/` | Admin | Soft-delete report (evidence preserved) |
 | POST | `/{id}/recovery/` | Authority | Log a recovery record for a report |
 | GET | `/{id}/recovery/` | Any logged-in | Get recovery details (owners see limited view) |
 | PUT | `/{id}/recovery/` | Authority | Amend recovery record |
 
-**Status machine:**
+**Status machine (modern pipeline):**
 ```
-stolen → under_investigation → recovered → closed
-       ↘________________________↗
-         (direct close allowed)
+new_case → under_review → active_investigation → bike_located → pending_verification
+                                                                        ↓
+                                                            owner confirms receipt
+                                                                        ↓
+                                                                     closed
+
+Legacy path (seeded data): stolen → under_investigation → (recovery logged) → closed
 ```
+Authority may advance through the pipeline; only the bike owner can confirm receipt
+(`PUT /api/reports/{id}/recovery/confirm/`) to close the case. Admins can override
+to any state.
 
 ### Sightings — `/api/sightings/`
 
@@ -542,7 +549,7 @@ python -m pytest tests/ --cov-report=html
 python -m pytest tests/ --no-cov -q
 ```
 
-**Expected result:** 241 tests passing, ≥ 80% coverage.
+**Expected result:** 381 tests passing, ≥ 90% coverage.
 
 ---
 
@@ -593,12 +600,12 @@ bike_theft_tracker/
 ├── config/
 │   ├── settings.py     # Django settings (reads from .env)
 │   └── urls.py         # Root URL routing
-├── tests/              # pytest test suite (241 tests, 80%+ coverage)
+├── tests/              # pytest test suite (381 tests, 90%+ coverage)
 ├── deploy/             # Nginx, Gunicorn, cron configs for production
 ├── .env.example        # Template — copy to .env and fill in values
 ├── requirements.txt    # All Python dependencies
 ├── manage.py           # Django management CLI
-├── start_dev.bat       # One-click startup script (Windows, this machine)
+├── start.bat           # One-click startup script (Windows, this machine)
 ├── README.md           # Tech stack + API reference summary
 └── GUIDE.md            # This file — complete run and deploy guide
 ```

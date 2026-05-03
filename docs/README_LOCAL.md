@@ -28,7 +28,7 @@ Before presenting the app, follow `RESET_RUNBOOK.md` for a complete clean reset 
 
 ## Starting the App — Quick Way
 
-Double-click **`start_dev.bat`** in the project root.
+Double-click **`start.bat`** in the project root.
 
 It will:
 1. Start PostgreSQL on port 5433
@@ -136,7 +136,7 @@ venv\Scripts\activate.bat
 python -m pytest tests/
 ```
 
-**Expected result:** 241 tests passing, 80%+ coverage.
+**Expected result:** 381 tests passing, 90%+ coverage.
 
 ### Other test options:
 
@@ -144,7 +144,7 @@ python -m pytest tests/
 :: Run a specific test file
 python -m pytest tests/test_auth.py -v
 
-:: Skip the 80% coverage threshold (faster for quick checks)
+:: Skip the 90% coverage threshold (faster for quick checks)
 python -m pytest tests/ --no-cov -q
 
 :: Generate an HTML coverage report (opens at htmlcov\index.html)
@@ -344,14 +344,14 @@ D:\scripts\bike_theft_tracker\
 ├── config\
 │   ├── settings.py    All Django settings (reads from .env)
 │   └── urls.py        Root URL routing
-├── tests\             241 tests — 80%+ coverage
+├── tests\             381 tests — 90%+ coverage
 ├── deploy\            Nginx, Gunicorn, cron configs (for production)
 ├── venv\              Python 3.11 virtual environment (DO NOT commit)
 ├── .env               Your local secrets (DO NOT commit)
 ├── .env.example       Template with placeholder values (safe to commit)
 ├── requirements.txt   Python dependencies
 ├── manage.py          Django CLI
-├── start_dev.bat      One-click startup script for this machine
+├── start.bat          One-click startup script for this machine
 ├── pytest.ini         Test configuration
 ├── README.md          Tech stack + full API reference
 ├── README_LOCAL.md    This file

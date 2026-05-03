@@ -523,7 +523,7 @@ Event 6 ─── Owner confirms pickup
 | `test_fuzzy_match.py` | 15 | WRatio scoring accuracy at various thresholds |
 | `test_theft_alert_notifications.py` | 16 | City-scoped theft alert fan-out (owner/authority/community) |
 | `test_ml_corridors.py` | 21 | Recovery radius + corridor analysis endpoints + unit tests |
-| **Total** | **380** | **≥90% coverage — threshold met ✅** |
+| **Total** | **381** | **≥90% coverage — threshold met ✅** |
 
 ---
 

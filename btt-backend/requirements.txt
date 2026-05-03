@@ -1,20 +1,39 @@
+# ── Core Django ────────────────────────────────────────────────────────────────
 Django==4.2.11
 djangorestframework==3.14.0
 djangorestframework-simplejwt==5.3.1
 psycopg[binary]==3.2.1
 django-filter==23.5
+
+# ── ML / Analytics ─────────────────────────────────────────────────────────────
 rapidfuzz==3.6.1
 scikit-learn==1.3.2
 pandas==2.1.4
 numpy==1.26.3
+
+# ── File upload / media ────────────────────────────────────────────────────────
+Pillow==10.2.0
 python-magic==0.4.27; platform_system!="Windows"
 python-magic-bin==0.4.14; platform_system=="Windows"
+
+# ── Notifications ──────────────────────────────────────────────────────────────
 twilio==8.10.0
-Pillow==10.2.0
+
+# ── GeoDjango — GDAL/GEOS DLL providers (Windows dev only) ────────────────────
+# On Linux/macOS install gdal via: sudo apt install gdal-bin libgdal-dev
+# On Windows these pip wheels bundle the native DLLs; point GDAL_LIBRARY_PATH
+# and GEOS_LIBRARY_PATH in .env at the DLLs inside the installed packages.
+rasterio==1.4.4; platform_system=="Windows"
+shapely==2.1.2; platform_system=="Windows"
+
+# ── Testing ────────────────────────────────────────────────────────────────────
 pytest==8.3.2
 pytest-django==4.7.0
 pytest-cov==4.1.0
+pytest-asyncio==0.23.8
 factory-boy==3.3.0
+
+# ── Utilities ──────────────────────────────────────────────────────────────────
 python-dotenv==1.0.0
 gunicorn==21.2.0
-reportlab==4.4.10  # used by build_techdoc_pdf.py to generate BTT_Technical_Documentation.pdf
+reportlab==4.4.10
