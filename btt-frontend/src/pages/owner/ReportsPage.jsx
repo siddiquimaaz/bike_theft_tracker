@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import { useFetch }   from '../../hooks/useFetch';
-import { getReports, getReport } from '../../api/reportApi';
+import { getReports, getReport, confirmRecoveryReceipt } from '../../api/reportApi';
 import { getSightings, ownerConfirmSighting } from '../../api/sightingApi';
 import { Button, Modal, EmptyState, Spinner } from '../../components/UI';
 import Badge  from '../../components/UI/Badge';
 import ReportForm from '../../components/forms/ReportForm';
-import { STATUS_COLORS, STATUS_LABELS } from '../../utils/constants';
+import { REPORT_STATUSES, STATUS_COLORS, STATUS_LABELS } from '../../utils/constants';
 import { formatDate } from '../../utils/formatters';
 import CaseTimeline from '../../components/timeline/CaseTimeline';
 
@@ -37,6 +37,16 @@ export default function ReportsPage() {
   const [showFile, setShowFile] = useState(false);
   const [detail,   setDetail]   = useState(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
+  const [confirmingRecoveryId, setConfirmingRecoveryId] = useState(null);
+
+  function canConfirmRecovery(report) {
+    if (!report) return false;
+    if (report.owner_recovery_confirmed) return false;
+    return [
+      REPORT_STATUSES.PENDING_VERIFICATION,
+      REPORT_STATUSES.RECOVERED,
+    ].includes(report.status);
+  }
 
   async function openDetail(reportId) {
     setLoadingDetail(true);
@@ -45,6 +55,21 @@ export default function ReportsPage() {
       setDetail(data);
     } finally {
       setLoadingDetail(false);
+    }
+  }
+
+  async function handleConfirmRecovery(reportId) {
+    setConfirmingRecoveryId(reportId);
+    try {
+      await confirmRecoveryReceipt(reportId);
+      await refetch();
+      if (detail?.id === reportId) {
+        await openDetail(reportId);
+      }
+    } catch (err) {
+      alert(err.response?.data?.error ?? 'Failed to confirm bike receipt.');
+    } finally {
+      setConfirmingRecoveryId(null);
     }
   }
 
@@ -115,7 +140,7 @@ export default function ReportsPage() {
             : (
               <table className="tbl">
                 <thead className="bg-btt-700"><tr>
-                  <th>ID</th><th>Bike</th><th>Status</th><th>City</th><th>Date</th>
+                  <th>ID</th><th>Bike</th><th>Status</th><th>City</th><th>Date</th><th>Action</th>
                 </tr></thead>
                 <tbody>
                   {reports.map((r) => (
@@ -128,6 +153,20 @@ export default function ReportsPage() {
                       <td><Badge variant={STATUS_COLORS[r.status] ?? 'gray'}>{STATUS_LABELS[r.status] ?? r.status}</Badge></td>
                       <td className="text-muted">{r.theft_city ?? '—'}</td>
                       <td className="text-faint text-xs">{formatDate(r.theft_date ?? r.created_at)}</td>
+                      <td onClick={(e) => e.stopPropagation()}>
+                        {canConfirmRecovery(r) ? (
+                          <Button
+                            size="sm"
+                            variant="green"
+                            loading={confirmingRecoveryId === r.id}
+                            onClick={() => handleConfirmRecovery(r.id)}
+                          >
+                            Confirm Bike Received
+                          </Button>
+                        ) : (
+                          <span className="text-faint text-xs">—</span>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -160,6 +199,17 @@ export default function ReportsPage() {
               ))}
             </tbody>
           </table>
+          {canConfirmRecovery(detail) && (
+            <div className="mt-4">
+              <Button
+                variant="green"
+                loading={confirmingRecoveryId === detail.id}
+                onClick={() => handleConfirmRecovery(detail.id)}
+              >
+                Confirm Bike Received
+              </Button>
+            </div>
+          )}
           <CaseTimeline events={detail.timeline ?? []} />
         </Modal>
       )}

@@ -7,6 +7,7 @@ import logging
 import threading
 from django.db import transaction
 from django.db.models import Q
+from django.db.models.functions import Lower, Trim
 from rest_framework import generics, status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
@@ -24,12 +25,24 @@ from .serializers import (
     TheftReportCreateSerializer,
     TheftReportListSerializer,
     TheftReportDetailSerializer,
+    CommunityTheftFeedSerializer,
     StatusUpdateSerializer,
     RecoveryCreateSerializer,
     RecoveryRecordSerializer,
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _normalize_city(city):
+    return (city or "").strip().lower()
+
+
+def _filter_queryset_by_city(qs, city_value, field_name):
+    normalized_city = _normalize_city(city_value)
+    if not normalized_city:
+        return qs.none()
+    return qs.annotate(_city_norm=Lower(Trim(field_name))).filter(_city_norm=normalized_city)
 
 
 class TheftReportListCreateView(generics.ListCreateAPIView):
@@ -60,12 +73,7 @@ class TheftReportListCreateView(generics.ListCreateAPIView):
         if user.is_owner:
             return qs.filter(reported_by=user)
         if user.is_authority:
-            # Authority officers are scoped to their registered city.
-            # If no city is configured on their account, return nothing
-            # until an admin sets their city — prevents inadvertent data exposure.
-            if not user.city:
-                return qs.none()
-            return qs.filter(theft_city__iexact=user.city)
+            return _filter_queryset_by_city(qs, user.city, "theft_city")
         if user.is_admin:
             return qs
         # Community users cannot read full theft case data.
@@ -107,9 +115,7 @@ class TheftReportDetailView(generics.RetrieveDestroyAPIView):
         if user.is_owner:
             return qs.filter(reported_by=user)
         if user.is_authority:
-            if not user.city:
-                return qs.none()
-            return qs.filter(theft_city__iexact=user.city)
+            return _filter_queryset_by_city(qs, user.city, "theft_city")
         if user.is_admin:
             return qs
         return qs.none()
@@ -123,6 +129,43 @@ class TheftReportDetailView(generics.RetrieveDestroyAPIView):
             {"message": "Report soft-deleted. Evidence preserved."},
             status=status.HTTP_204_NO_CONTENT,
         )
+
+
+class CommunityTheftFeedView(generics.ListAPIView):
+    """
+    GET /api/reports/community-feed/
+    City-scoped sanitized theft feed for community users only.
+    """
+    serializer_class = CommunityTheftFeedSerializer
+
+    def get_permissions(self):
+        return [IsAnyAuthenticatedRole()]
+
+    def list(self, request, *args, **kwargs):
+        if not request.user.is_community:
+            return Response(
+                {"error": "Only community users can access this feed."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        return super().list(request, *args, **kwargs)
+
+    def get_queryset(self):
+        user = self.request.user
+        visible_statuses = [
+            TheftReport.Status.STOLEN,
+            TheftReport.Status.UNDER_INVESTIGATION,
+            TheftReport.Status.NEW_CASE,
+            TheftReport.Status.UNDER_REVIEW,
+            TheftReport.Status.ACTIVE_INVESTIGATION,
+            TheftReport.Status.BIKE_LOCATED,
+            TheftReport.Status.PENDING_VERIFICATION,
+            TheftReport.Status.RECOVERED,
+        ]
+        qs = TheftReport.objects.filter(
+            deleted_at__isnull=True,
+            status__in=visible_statuses,
+        ).select_related("bike")
+        return _filter_queryset_by_city(qs, user.city, "theft_city").order_by("-created_at")
 
 
 # ─── Authority role transition allowlist ──────────────────────────────────────
@@ -173,9 +216,10 @@ def update_report_status(request, pk):
     """
     queryset = TheftReport.objects.filter(deleted_at__isnull=True)
     if request.user.is_authority:
-        if not request.user.city:
+        normalized_city = _normalize_city(request.user.city)
+        if not normalized_city:
             return Response({"error": "Your account has no city configured. Contact an admin."}, status=status.HTTP_403_FORBIDDEN)
-        queryset = queryset.filter(theft_city__iexact=request.user.city)
+        queryset = queryset.annotate(_city_norm=Lower(Trim("theft_city"))).filter(_city_norm=normalized_city)
 
     try:
         report = queryset.get(pk=pk)
@@ -255,9 +299,10 @@ def recovery_record(request, report_pk):
     if request.user.is_owner:
         queryset = queryset.filter(reported_by=request.user)
     elif request.user.is_authority:
-        if not request.user.city:
+        normalized_city = _normalize_city(request.user.city)
+        if not normalized_city:
             return Response({"error": "Your account has no city configured. Contact an admin."}, status=status.HTTP_403_FORBIDDEN)
-        queryset = queryset.filter(theft_city__iexact=request.user.city)
+        queryset = queryset.annotate(_city_norm=Lower(Trim("theft_city"))).filter(_city_norm=normalized_city)
     elif request.user.is_admin:
         pass
     else:

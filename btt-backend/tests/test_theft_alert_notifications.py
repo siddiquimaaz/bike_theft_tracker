@@ -164,6 +164,27 @@ def test_different_city_community_not_notified(report, lahore_community):
 
 
 @pytest.mark.django_db
+def test_city_fanout_normalizes_whitespace_and_case(report, karachi_authority, karachi_community):
+    report.theft_city = "  KARACHI  "
+    report.save(update_fields=["theft_city"])
+    karachi_authority.city = "karachi"
+    karachi_authority.save(update_fields=["city"])
+    karachi_community.city = "  Karachi"
+    karachi_community.save(update_fields=["city"])
+
+    notify_theft_reported(report)
+
+    assert Notification.objects.filter(
+        user=karachi_authority,
+        type=Notification.Type.THEFT_REPORTED,
+    ).exists()
+    assert Notification.objects.filter(
+        user=karachi_community,
+        type=Notification.Type.SYSTEM,
+    ).exists()
+
+
+@pytest.mark.django_db
 def test_admin_not_notified_on_theft_report(report, admin_user_2):
     notify_theft_reported(report)
 

@@ -127,6 +127,31 @@ class TheftReportDetailSerializer(TheftReportListSerializer):
         ]
 
 
+class CommunityTheftFeedSerializer(serializers.ModelSerializer):
+    reference_number = serializers.CharField(read_only=True)
+    bike_info = serializers.SerializerMethodField()
+
+    class Meta:
+        model = TheftReport
+        fields = [
+            "id",
+            "reference_number",
+            "status",
+            "theft_city",
+            "theft_date",
+            "theft_location_detail",
+            "created_at",
+            "bike_info",
+        ]
+
+    def get_bike_info(self, obj):
+        return {
+            "make": obj.bike.make,
+            "model": obj.bike.model,
+            "color": obj.bike.color,
+        }
+
+
 class StatusUpdateSerializer(serializers.Serializer):
     status = serializers.ChoiceField(choices=TheftReport.Status.choices)
     note = serializers.CharField(required=False, allow_blank=True)

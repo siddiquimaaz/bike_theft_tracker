@@ -566,6 +566,25 @@ class TestNotificationDeliveryPerRole:
             report=sample_report,
         ).exists()
 
+    def test_notify_status_changed_on_pending_verification_creates_actionable_recovery(
+        self, sample_report, owner_user
+    ):
+        from apps.notifications.notification_service import notify_status_changed
+        from apps.notifications.models import Notification
+        from apps.reports.models import TheftReport
+
+        sample_report.status = TheftReport.Status.PENDING_VERIFICATION
+        sample_report.save(update_fields=["status"])
+
+        notify_status_changed(sample_report, TheftReport.Status.BIKE_LOCATED)
+        notif = Notification.objects.filter(
+            user=owner_user,
+            type=Notification.Type.RECOVERY,
+            report=sample_report,
+        ).first()
+        assert notif is not None
+        assert notif.metadata.get("requires_owner_confirmation") is True
+
     def test_high_confidence_sighting_alerts_authority_with_high_confidence_message(
         self, community_user, sample_bike, authority_user
     ):

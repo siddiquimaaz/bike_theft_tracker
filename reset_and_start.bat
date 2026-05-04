@@ -84,8 +84,8 @@ if /I "%CREATE_SUPERUSER%"=="y" (
 set /p SEED_DEMO="[7/9] Seed demo users/data now? (y/N): "
 if /I "%SEED_DEMO%"=="y" (
   pushd "%BACKEND_DIR%"
-  "%PYTHON_EXE%" manage.py create_demo_users --reset
   "%PYTHON_EXE%" manage.py seed_demo_data --clear
+  "%PYTHON_EXE%" manage.py create_demo_users
   popd
 )
 

@@ -97,6 +97,33 @@ class TestReportVisibility:
 
 
 @pytest.mark.django_db
+class TestCommunityFeed:
+    def test_community_can_view_city_feed(self, community_client, community_user, sample_report):
+        community_user.city = "Karachi"
+        community_user.save(update_fields=["city"])
+
+        response = community_client.get("/api/reports/community-feed/")
+        assert response.status_code == 200
+        ids = [r["id"] for r in response.data["results"]]
+        assert sample_report.id in ids
+
+    def test_community_feed_city_matching_normalizes_whitespace(self, community_client, community_user, sample_report):
+        sample_report.theft_city = "  Karachi  "
+        sample_report.save(update_fields=["theft_city"])
+        community_user.city = "karachi"
+        community_user.save(update_fields=["city"])
+
+        response = community_client.get("/api/reports/community-feed/")
+        assert response.status_code == 200
+        ids = [r["id"] for r in response.data["results"]]
+        assert sample_report.id in ids
+
+    def test_non_community_user_cannot_access_community_feed(self, owner_client):
+        response = owner_client.get("/api/reports/community-feed/")
+        assert response.status_code == 403
+
+
+@pytest.mark.django_db
 class TestStatusTransition:
     def test_authority_can_advance_status(self, authority_client, sample_report):
         # sample_report starts at new_case; correct modern advance is → under_review

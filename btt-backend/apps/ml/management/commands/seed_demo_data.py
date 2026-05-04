@@ -132,6 +132,21 @@ class Command(BaseCommand):
             lahore_officer.set_password("Authority@2024")
             lahore_officer.save()
 
+        # Community reporter account used by demo login + city feed checks.
+        community_user, _ = User.objects.get_or_create(
+            email="community@demo.btt",
+            defaults=dict(
+                full_name="Community Reporter",
+                role="community",
+                city="Lahore",
+                is_verified=True,
+                is_active=True,
+            ),
+        )
+        if _:
+            community_user.set_password("Community@2024")
+            community_user.save()
+
         officers_by_city = {
             "Karachi": karachi_officer,
             "Lahore": lahore_officer,
@@ -238,6 +253,7 @@ class Command(BaseCommand):
             f"  Authority: authority.karachi@demo.btt / Authority@2024\n"
             f"  Authority: authority.lahore@demo.btt  / Authority@2024\n"
             f"  Owner:     owner000@demo.btt        / Owner@2024\n"
+            f"  Community: community@demo.btt       / Community@2024\n"
             f"\nNow run:\n"
             f"  python manage.py run_hotspot_analysis --all-cities\n"
             f"  python manage.py run_trend_analytics\n"

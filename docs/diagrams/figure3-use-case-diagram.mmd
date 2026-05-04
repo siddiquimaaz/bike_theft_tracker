@@ -1,0 +1,96 @@
+flowchart LR
+    %% External actors
+    Admin[Admin]
+    Authority[Authority Officer]
+    Owner[Bike Owner]
+    Community[Community Reporter]
+    EmailSvc[SMTP Service]
+    SmsSvc[Twilio SMS]
+
+    %% System boundary
+    subgraph BTT[Bike Theft Tracker System]
+        direction TB
+
+        subgraph AuthGroup[Authentication & Access]
+            direction LR
+            UC1((Register Account))
+            UC2((Login))
+            UC3((Role-Based Access))
+        end
+
+        subgraph CaseGroup[Case Management]
+            direction LR
+            UC4((Register Bike))
+            UC5((File Theft Report))
+            UC6((Update Case Status))
+            UC7((Log Recovery))
+            UC8((Confirm Recovery))
+        end
+
+        subgraph SightingGroup[Sighting & Verification]
+            direction LR
+            UC9((Submit Sighting))
+            UC10((Fuzzy Match))
+            UC11((Owner Handshake))
+            UC12((Verify Sighting))
+        end
+
+        subgraph InsightGroup[Monitoring & Intelligence]
+            direction LR
+            UC13((View Notifications))
+            UC14((View Analytics))
+            UC15((Manage Users))
+            UC16((View Audit Logs))
+        end
+    end
+
+    %% Actor relationships
+    Owner --- UC1
+    Owner --- UC2
+    Owner --- UC4
+    Owner --- UC5
+    Owner --- UC8
+    Owner --- UC13
+
+    Community --- UC1
+    Community --- UC2
+    Community --- UC9
+    Community --- UC13
+
+    Authority --- UC2
+    Authority --- UC6
+    Authority --- UC7
+    Authority --- UC12
+    Authority --- UC13
+    Authority --- UC14
+
+    Admin --- UC2
+    Admin --- UC14
+    Admin --- UC15
+    Admin --- UC16
+
+    %% Include/extend relations for UML-like semantics
+    UC5 -. "<<include>>" .-> UC13
+    UC9 -. "<<include>>" .-> UC10
+    UC10 -. "<<include>>" .-> UC11
+    UC11 -. "<<extend>>" .-> UC12
+    UC7 -. "<<include>>" .-> UC13
+    UC8 -. "<<include>>" .-> UC13
+    UC2 -. "<<include>>" .-> UC3
+
+    %% External service interactions
+    UC13 --- EmailSvc
+    UC13 --- SmsSvc
+
+    %% Styling to match formal sample look
+    classDef actor fill:#eef2f7,stroke:#4b5563,stroke-width:1.2px,color:#111;
+    classDef external fill:#fce7e7,stroke:#b45353,stroke-width:1.2px,color:#111;
+    classDef usecase fill:#f9f4cf,stroke:#8f7b2e,stroke-width:1.2px,color:#111;
+    classDef boundary fill:#f7f7f7,stroke:#6b7280,stroke-width:1.5px,color:#111;
+    classDef group fill:#fffdf2,stroke:#d4c479,stroke-width:1px,color:#111;
+
+    class Admin,Authority,Owner,Community actor;
+    class EmailSvc,SmsSvc external;
+    class UC1,UC2,UC3,UC4,UC5,UC6,UC7,UC8,UC9,UC10,UC11,UC12,UC13,UC14,UC15,UC16 usecase;
+    class BTT boundary;
+    class AuthGroup,CaseGroup,SightingGroup,InsightGroup group;

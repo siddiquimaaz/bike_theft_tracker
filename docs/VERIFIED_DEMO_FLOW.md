@@ -93,7 +93,9 @@ Important seed note:
 - `PUT /api/reports/{id}/status/`
 - Uses state machine transition rules.
 - Writes timeline event and sends status-change notification.
-- Owner notifications fire on milestones only: `bike_located` and `recovered`.
+- Owner notifications fire on milestones: `bike_located`, `pending_verification`, and `recovered`.
+- When status enters `pending_verification` (including authority-driven status update),
+  owner notification is actionable and includes recovery confirmation CTA metadata.
 - For full lifecycle demo, explicitly run these transitions in order:
   - `new_case -> under_review`
   - `under_review -> active_investigation`
@@ -129,6 +131,7 @@ Important seed note:
 - **API closure:** `PUT /api/reports/{id}/recovery/confirm/`
 - Owner confirms receipt; report transitions to `closed`.
 - Contributor closure notifications are sent to relevant community contributors.
+- **CTA surfaces:** owner can confirm from Notifications and from Owner Reports list/detail.
 
 Important trigger detail:
 
@@ -188,6 +191,14 @@ Outcomes:
 
 - `GET /api/sightings/` for authority/admin is prioritized by confidence.
 - Authority can proceed with verification and downstream recovery workflow based on confirmed/escalated sightings.
+
+### 4.5 Community same-city theft feed
+
+- Community users now have a limited awareness feed:
+  - `GET /api/reports/community-feed/`
+- Feed is city-scoped to the logged-in community user's city and returns sanitized fields only
+  (no owner PII, no full case internals).
+- Access is role-restricted: non-community roles receive `403`.
 
 ---
 
@@ -324,7 +335,7 @@ If using `seed_demo_data`:
 
 - Auth works for all four roles.
 - Owner-only endpoints enforce verification and role.
-- Community user is blocked from theft reports API (`/api/reports/`) and does not get full case data access.
+- Community user remains blocked from full theft reports API (`/api/reports/`) but can access limited same-city feed (`/api/reports/community-feed/`).
 - A fresh report follows modern status lifecycle.
 - Demo explicitly exercises `under_review`, `active_investigation`, and `bike_located` before recovery.
 - Sighting handshake and escalation behavior is observable.

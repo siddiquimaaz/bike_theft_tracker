@@ -1,10 +1,17 @@
 import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import { Button } from '../../components/UI';
+import { Button, EmptyState, Spinner } from '../../components/UI';
+import { useFetch } from '../../hooks/useFetch';
+import { getCommunityFeed } from '../../api/reportApi';
+import Badge from '../../components/UI/Badge';
+import { STATUS_COLORS, STATUS_LABELS } from '../../utils/constants';
+import { formatDate } from '../../utils/formatters';
 
 export default function CommunityDashboard() {
   const { user }  = useAuth();
   const navigate  = useNavigate();
+  const { data: feedData, loading: feedLoading, error: feedError } = useFetch(getCommunityFeed, []);
+  const feed = feedData?.results ?? feedData ?? [];
 
   return (
     <div>
@@ -39,6 +46,63 @@ export default function CommunityDashboard() {
         <strong>How it works:</strong> Submit a sighting with whatever partial numbers you can read.
         Our RapidFuzz WRatio algorithm scores it against all active stolen bike records.
         Matching sightings are forwarded to the relevant city authority for verification.
+      </div>
+
+      <div className="card mt-6 max-w-4xl">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-heading font-semibold text-base text-gray-100">Same-City Theft Feed</h2>
+          <span className="text-xs text-faint">Public case snapshot for community awareness</span>
+        </div>
+
+        {feedLoading && <Spinner />}
+        {!feedLoading && feedError && (
+          <div className="alert alert-warning">
+            {feedError || 'Unable to load city theft feed right now.'}
+          </div>
+        )}
+        {!feedLoading && !feedError && feed.length === 0 && (
+          <EmptyState
+            icon="🏙️"
+            title="No active theft cases in your city"
+            subtitle="Add your city in profile settings if this looks incorrect."
+          />
+        )}
+        {!feedLoading && !feedError && feed.length > 0 && (
+          <div className="overflow-x-auto">
+            <table className="tbl">
+              <thead className="bg-btt-700">
+                <tr>
+                  <th>Case</th>
+                  <th>Bike</th>
+                  <th>Status</th>
+                  <th>City</th>
+                  <th>Theft Date</th>
+                </tr>
+              </thead>
+              <tbody>
+                {feed.map((item) => (
+                  <tr key={item.id}>
+                    <td>
+                      <div className="mono text-primary text-xs">{item.reference_number ?? `#${item.id}`}</div>
+                      <div className="text-faint text-xs">{item.theft_location_detail ?? 'Location withheld'}</div>
+                    </td>
+                    <td className="text-sm text-gray-200">
+                      {item.bike_info?.make} {item.bike_info?.model}
+                      {item.bike_info?.color ? <span className="text-faint"> ({item.bike_info.color})</span> : null}
+                    </td>
+                    <td>
+                      <Badge variant={STATUS_COLORS[item.status] ?? 'gray'}>
+                        {STATUS_LABELS[item.status] ?? item.status}
+                      </Badge>
+                    </td>
+                    <td className="text-muted">{item.theft_city ?? '—'}</td>
+                    <td className="text-faint text-xs">{formatDate(item.theft_date ?? item.created_at)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );

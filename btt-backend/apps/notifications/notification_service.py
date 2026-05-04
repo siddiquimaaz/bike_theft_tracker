@@ -4,11 +4,23 @@ Notification domain workflows and routing logic.
 import logging
 from datetime import timedelta
 from django.conf import settings
+from django.db.models.functions import Lower, Trim
 from django.utils import timezone
 from apps.reports.timeline import add_case_timeline_event
 from .models import Notification
 
 logger = logging.getLogger(__name__)
+
+
+def _normalize_city(city):
+    return (city or "").strip().lower()
+
+
+def _users_in_city(qs, city):
+    normalized_city = _normalize_city(city)
+    if not normalized_city:
+        return qs.none()
+    return qs.annotate(_city_norm=Lower(Trim("city"))).filter(_city_norm=normalized_city)
 
 
 def _create_in_app(user, notification_type, message, report=None, sighting=None, metadata=None):
@@ -56,11 +68,10 @@ def notify_theft_reported(report):
     )
 
     # 2. Authority — same city only
-    authority_qs = User.objects.filter(
+    authority_qs = _users_in_city(User.objects.filter(
         role=User.Role.AUTHORITY,
         is_active=True,
-        city__iexact=theft_city,
-    )
+    ), theft_city)
     for officer in authority_qs:
         _create_in_app(
             officer,
@@ -73,11 +84,10 @@ def notify_theft_reported(report):
         )
 
     # 3. Community — same city only (no owner contact/PII)
-    community_qs = User.objects.filter(
+    community_qs = _users_in_city(User.objects.filter(
         role=User.Role.COMMUNITY,
         is_active=True,
-        city__iexact=theft_city,
-    ).exclude(id=owner.id)
+    ), theft_city).exclude(id=owner.id)
     for member in community_qs:
         _create_in_app(
             member,
@@ -100,14 +110,28 @@ def notify_theft_reported(report):
 
 def notify_status_changed(report, old_status):
     # Keep owner notifications milestone-based to avoid noisy internal updates.
-    owner_visible_statuses = {"bike_located", "recovered"}
+    owner_visible_statuses = {"bike_located", "pending_verification", "recovered"}
     if report.status in owner_visible_statuses:
         owner = report.reported_by
-        message = (
-            f"Case {report.reference_number} status changed: "
-            f"{old_status} → {report.status}."
-        )
-        _create_in_app(owner, Notification.Type.STATUS_UPDATE, message, report)
+        if report.status in {"pending_verification", "recovered"}:
+            # Recovery confirmation states must carry an actionable CTA for owners.
+            message = (
+                f"Case {report.reference_number} is awaiting your verification. "
+                "Confirm bike receipt to close the case."
+            )
+            _create_in_app(
+                owner,
+                Notification.Type.RECOVERY,
+                message,
+                report,
+                metadata={"requires_owner_confirmation": True},
+            )
+        else:
+            message = (
+                f"Case {report.reference_number} status changed: "
+                f"{old_status} → {report.status}."
+            )
+            _create_in_app(owner, Notification.Type.STATUS_UPDATE, message, report)
     add_case_timeline_event(
         report,
         "status_changed",
@@ -212,11 +236,10 @@ def notify_sighting_submitted(sighting):
         # Notify authority users in the same city and all admins so the
         # verification queue is acted on quickly.
         from apps.users.models import User
-        authority_qs = User.objects.filter(
+        authority_qs = _users_in_city(User.objects.filter(
             role=User.Role.AUTHORITY,
             is_active=True,
-            city__iexact=sighting.sighting_city or "",
-        )
+        ), sighting.sighting_city or "")
         admin_qs = User.objects.filter(role=User.Role.ADMIN, is_active=True)
         for officer in authority_qs:
             _create_in_app(
@@ -308,11 +331,10 @@ def notify_sighting_submitted_extended(sighting):
 
             # Notify authorities urgently
             from apps.users.models import User
-            authority_qs = User.objects.filter(
+            authority_qs = _users_in_city(User.objects.filter(
                 role=User.Role.AUTHORITY,
                 is_active=True,
-                city__iexact=sighting.sighting_city or "",
-            )
+            ), sighting.sighting_city or "")
             for officer in authority_qs:
                 _create_in_app(
                     officer,
@@ -375,11 +397,10 @@ def notify_owner_response(sighting, response, responder):
     if response == "yes":
         # Notify authorities with escalation flag
         from apps.users.models import User
-        authority_qs = User.objects.filter(
+        authority_qs = _users_in_city(User.objects.filter(
             role=User.Role.AUTHORITY,
             is_active=True,
-            city__iexact=sighting.sighting_city or "",
-        )
+        ), sighting.sighting_city or "")
         for officer in authority_qs:
             _create_in_app(
                 officer,
@@ -434,11 +455,10 @@ def auto_escalate_pending_owner_responses(hours=None):
     escalated_count = 0
     for sighting in pending:
         report = _get_report_for_sighting(sighting)
-        authority_qs = User.objects.filter(
+        authority_qs = _users_in_city(User.objects.filter(
             role=User.Role.AUTHORITY,
             is_active=True,
-            city__iexact=sighting.sighting_city or "",
-        )
+        ), sighting.sighting_city or "")
         for officer in authority_qs:
             _create_in_app(
                 officer,

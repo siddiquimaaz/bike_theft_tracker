@@ -16,6 +16,13 @@ CNIC_PATTERN = re.compile(r"^\d{13}$")
 PHONE_PATTERN = re.compile(r"^\+92\d{10}$|^0\d{10}$")
 
 
+def _normalize_city(value):
+    if value is None:
+        return None
+    normalized = value.strip()
+    return normalized or None
+
+
 class UserRegistrationSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, min_length=8)
     confirm_password = serializers.CharField(write_only=True)
@@ -50,6 +57,9 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
             )
         return value
 
+    def validate_city(self, value):
+        return _normalize_city(value)
+
     def validate(self, data):
         for nullable in ("cnic", "phone", "city"):
             if data.get(nullable) == "":
@@ -83,6 +93,9 @@ class AuthorityCreationSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Badge number is required for authority accounts.")
         return value
 
+    def validate_city(self, value):
+        return _normalize_city(value)
+
     def create(self, validated_data):
         return User.objects.create_user(
             role=User.Role.AUTHORITY,
@@ -99,6 +112,9 @@ class UserProfileSerializer(serializers.ModelSerializer):
             "city", "is_verified", "badge_number", "created_at",
         ]
         read_only_fields = ["id", "email", "role", "is_verified", "badge_number", "created_at"]
+
+    def validate_city(self, value):
+        return _normalize_city(value)
 
 
 class UserListSerializer(serializers.ModelSerializer):

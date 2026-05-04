@@ -1,0 +1,36 @@
+sequenceDiagram
+    participant O as Owner
+    participant FE as Frontend
+    participant API as Django API
+    participant C as Community
+    participant AU as Authority
+    participant NS as Notification Service
+    participant DB as PostgreSQL/PostGIS
+
+    O->>FE: File theft report
+    FE->>API: POST /api/reports/
+    API->>DB: Save report (new_case)
+    API->>NS: Notify authority/community (city scoped)
+
+    C->>FE: Submit sighting
+    FE->>API: POST /api/sightings/
+    API->>DB: Save sighting + run fuzzy match
+    API->>NS: Notify owner handshake (+ urgent if high confidence)
+
+    O->>FE: Confirm sighting (yes/no/not_sure)
+    FE->>API: PUT /api/sightings/{id}/owner-confirm/
+    API->>NS: Escalate to authority on yes
+
+    AU->>FE: Update case status
+    FE->>API: PUT /api/reports/{id}/status/
+    API->>DB: Transition status
+
+    AU->>FE: Log recovery
+    FE->>API: POST /api/reports/{id}/recovery/
+    API->>DB: Save recovery and update status
+    API->>NS: Notify owner
+
+    O->>FE: Confirm bike receipt
+    FE->>API: PUT /api/reports/{id}/recovery/confirm/
+    API->>DB: Close case
+    API->>NS: Notify community contributors
