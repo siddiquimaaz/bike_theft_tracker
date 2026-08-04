@@ -3,12 +3,12 @@ apps/reports/serializers.py
 Serializers for TheftReport and RecoveryRecord.
 Strict field-level validation enforced before view layer.
 """
-import uuid
-import os
 from datetime import date
 from django.conf import settings
 from django.contrib.gis.geos import Point
 from rest_framework import serializers
+
+from apps.common.uploads import save_uploads
 from .models import TheftReport, RecoveryRecord
 from apps.bikes.serializers import BikeListSerializer
 
@@ -217,19 +217,7 @@ class RecoveryCreateSerializer(serializers.ModelSerializer):
         if lat is not None and lng is not None:
             validated_data["recovery_location"] = Point(lng, lat, srid=4326)
 
-        # Persist evidence photos with UUID filenames
-        saved_filenames = []
-        for photo in photos:
-            ext = photo.name.rsplit(".", 1)[-1].lower()
-            filename = f"{uuid.uuid4()}.{ext}"
-            upload_path = os.path.join(settings.MEDIA_ROOT, "evidence", filename)
-            os.makedirs(os.path.dirname(upload_path), exist_ok=True)
-            with open(upload_path, "wb+") as dest:
-                for chunk in photo.chunks():
-                    dest.write(chunk)
-            saved_filenames.append(filename)
-
-        validated_data["evidence_photos"] = saved_filenames
+        validated_data["evidence_photos"] = save_uploads(photos, "evidence")
         return RecoveryRecord.objects.create(**validated_data)
 
     def update(self, instance, validated_data):
@@ -241,16 +229,6 @@ class RecoveryCreateSerializer(serializers.ModelSerializer):
             validated_data["recovery_location"] = Point(lng, lat, srid=4326)
 
         if photos is not None:
-            saved_filenames = []
-            for photo in photos:
-                ext = photo.name.rsplit(".", 1)[-1].lower()
-                filename = f"{uuid.uuid4()}.{ext}"
-                upload_path = os.path.join(settings.MEDIA_ROOT, "evidence", filename)
-                os.makedirs(os.path.dirname(upload_path), exist_ok=True)
-                with open(upload_path, "wb+") as dest:
-                    for chunk in photo.chunks():
-                        dest.write(chunk)
-                saved_filenames.append(filename)
-            validated_data["evidence_photos"] = saved_filenames
+            validated_data["evidence_photos"] = save_uploads(photos, "evidence")
 
         return super().update(instance, validated_data)

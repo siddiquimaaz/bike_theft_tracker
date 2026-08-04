@@ -16,7 +16,7 @@ For recurring "reset and run" steps on an already configured machine, see `RESET
 
 | Component | Version | Why |
 |-----------|---------|-----|
-| Python | 3.11 | The runtime. Do NOT use 3.12+ (some ML packages lack wheels) |
+| Python | 3.12+ | The runtime (binary wheels available for current CPython on Windows) |
 | PostgreSQL | 15 | The database |
 | PostGIS | 3.x | Geographic extension — needed for theft location queries |
 | GDAL | any recent | C library that Django uses for coordinate math |
@@ -36,7 +36,7 @@ Choose your operating system:
 sudo apt update && sudo apt upgrade -y
 
 sudo apt install -y \
-    python3.11 python3.11-venv python3-pip \
+    python3.12 python3.12-venv python3-pip \
     postgresql-15 postgresql-15-postgis-3 \
     gdal-bin libgdal-dev \
     git curl
@@ -60,7 +60,7 @@ Install Homebrew first if you don't have it:
 
 Then:
 ```bash
-brew install python@3.11 postgresql@15 postgis gdal git
+brew install python@3.12 postgresql@15 postgis gdal git
 brew services start postgresql@15
 ```
 
@@ -75,11 +75,11 @@ export PATH="/opt/homebrew/opt/postgresql@15/bin:$PATH"
 
 Install each item in order:
 
-**1. Python 3.11**
-- Download from: https://www.python.org/downloads/release/python-3119/
+**1. Python 3.12 or newer**
+- Download from: https://www.python.org/downloads/
 - Pick "Windows installer (64-bit)"
 - During install: **check "Add Python to PATH"**
-- Verify: open PowerShell → `python --version` → should show `Python 3.11.x`
+- Verify: open PowerShell → `python --version` → should show `Python 3.12.x` or newer
 
 **2. PostgreSQL 15 + PostGIS**
 - Download from: https://www.enterprisedb.com/downloads/postgres-postgresql-downloads
@@ -174,19 +174,19 @@ Open a terminal in the project folder, then:
 
 ### Linux / macOS
 ```bash
-python3.11 -m venv venv
+python3.12 -m venv venv
 source venv/bin/activate
 ```
 
 ### Windows (PowerShell)
 ```powershell
-py -3.11 -m venv venv
+py -3.12 -m venv venv
 venv\Scripts\Activate.ps1
 ```
 
 ### Windows (Command Prompt)
 ```bat
-py -3.11 -m venv venv
+py -3.12 -m venv venv
 venv\Scripts\activate.bat
 ```
 

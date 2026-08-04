@@ -1,6 +1,8 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+
+/* Keep the v3-style JS config: the btt colour palette, font families and
+   rounded-btt/shadow-btt tokens defined there are used across every page. */
+@config "../tailwind.config.js";
 
 /* ─── Google Fonts already loaded in index.html ─────────────────── */
 

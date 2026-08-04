@@ -246,8 +246,8 @@ Selected differentiating features for this project:
 
 #### 3.1.3 Software Interfaces
 
-- **Backend:** Python 3.11, Django 4.2, Django REST Framework 3.14.
-- **Frontend:** React 18, Vite 5, Tailwind CSS 3.
+- **Backend:** Python 3.12+, Django 6.0, Django REST Framework 3.17.
+- **Frontend:** React 19, Vite 8, Tailwind CSS 4.
 - **Database:** PostgreSQL 15 with PostGIS 3.x.
 - **Authentication:** JWT via `djangorestframework-simplejwt`.
 - **ML/Analytics:** scikit-learn, pandas, numpy, rapidfuzz.

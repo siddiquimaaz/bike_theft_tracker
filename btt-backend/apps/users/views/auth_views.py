@@ -4,8 +4,6 @@ Authentication endpoints — public and semi-public.
 """
 import re
 import uuid
-import logging
-import threading
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.validators import validate_email as django_validate_email
@@ -22,6 +20,7 @@ from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
+from apps.common.background import background_task, run_in_background
 from apps.users.serializers import (
     UserRegistrationSerializer,
     PasswordResetRequestSerializer,
@@ -31,7 +30,6 @@ from apps.users.serializers import (
 CNIC_DIGITS_PATTERN = re.compile(r"^\d{13}$")
 
 User = get_user_model()
-logger = logging.getLogger(__name__)
 
 
 class LoginRateThrottle(AnonRateThrottle):
@@ -126,11 +124,7 @@ def register(request):
     user.save(update_fields=["email_verification_token", "email_verification_token_expires"])
 
     # Send verification email in background — non-blocking
-    threading.Thread(
-        target=_send_verification_email,
-        args=(user,),
-        daemon=True,
-    ).start()
+    run_in_background(_send_verification_email, user)
 
     payload = {
         "id": user.id,
@@ -189,11 +183,7 @@ def forgot_password(request):
         user.password_reset_token = uuid.uuid4()
         user.password_reset_token_expires = timezone.now() + timedelta(hours=1)
         user.save(update_fields=["password_reset_token", "password_reset_token_expires"])
-        threading.Thread(
-            target=_send_password_reset_email,
-            args=(user,),
-            daemon=True,
-        ).start()
+        run_in_background(_send_password_reset_email, user)
     except User.DoesNotExist:
         pass  # Intentional — don't reveal whether email exists
 
@@ -334,17 +324,13 @@ def check_cnic(request):
 
 # ─── Email helpers ────────────────────────────────────────────────────────────
 
+@background_task("Failed to send verification email: %s")
 def _send_verification_email(user):
     from apps.notifications.email_service import send_email_verification
-    try:
-        send_email_verification(user)
-    except Exception as exc:
-        logger.error("Failed to send verification email to %s: %s", user.email, exc)
+    send_email_verification(user)
 
 
+@background_task("Failed to send password reset email: %s")
 def _send_password_reset_email(user):
     from apps.notifications.email_service import send_password_reset_email
-    try:
-        send_password_reset_email(user)
-    except Exception as exc:
-        logger.error("Failed to send password reset email to %s: %s", user.email, exc)
+    send_password_reset_email(user)

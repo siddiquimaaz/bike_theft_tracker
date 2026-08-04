@@ -4,23 +4,33 @@ Notification domain workflows and routing logic.
 import logging
 from datetime import timedelta
 from django.conf import settings
-from django.db.models.functions import Lower, Trim
 from django.utils import timezone
+from apps.common.city import filter_by_city
 from apps.reports.timeline import add_case_timeline_event
 from .models import Notification
 
 logger = logging.getLogger(__name__)
 
 
-def _normalize_city(city):
-    return (city or "").strip().lower()
+def _active_authorities_in(city):
+    """Authority officers on duty in `city`. Empty when the city is blank."""
+    from apps.users.models import User
+    return filter_by_city(
+        User.objects.filter(role=User.Role.AUTHORITY, is_active=True), city
+    )
 
 
-def _users_in_city(qs, city):
-    normalized_city = _normalize_city(city)
-    if not normalized_city:
-        return qs.none()
-    return qs.annotate(_city_norm=Lower(Trim("city"))).filter(_city_norm=normalized_city)
+def _open_owner_handshake(sighting, now, response_hours):
+    """
+    Put a sighting into the 'awaiting owner reply' state and start the clock.
+    After the deadline, auto_escalate_pending_owner_responses() takes over.
+    """
+    sighting.owner_confirmation_status = "pending"
+    sighting.owner_notified_at = now
+    sighting.owner_response_deadline = now + timedelta(hours=response_hours)
+    sighting.save(update_fields=[
+        "owner_confirmation_status", "owner_notified_at", "owner_response_deadline",
+    ])
 
 
 def _create_in_app(user, notification_type, message, report=None, sighting=None, metadata=None):
@@ -68,11 +78,7 @@ def notify_theft_reported(report):
     )
 
     # 2. Authority — same city only
-    authority_qs = _users_in_city(User.objects.filter(
-        role=User.Role.AUTHORITY,
-        is_active=True,
-    ), theft_city)
-    for officer in authority_qs:
+    for officer in _active_authorities_in(theft_city):
         _create_in_app(
             officer,
             Notification.Type.THEFT_REPORTED,
@@ -84,10 +90,9 @@ def notify_theft_reported(report):
         )
 
     # 3. Community — same city only (no owner contact/PII)
-    community_qs = _users_in_city(User.objects.filter(
-        role=User.Role.COMMUNITY,
-        is_active=True,
-    ), theft_city).exclude(id=owner.id)
+    community_qs = filter_by_city(
+        User.objects.filter(role=User.Role.COMMUNITY, is_active=True), theft_city
+    ).exclude(id=owner.id)
     for member in community_qs:
         _create_in_app(
             member,
@@ -236,12 +241,8 @@ def notify_sighting_submitted(sighting):
         # Notify authority users in the same city and all admins so the
         # verification queue is acted on quickly.
         from apps.users.models import User
-        authority_qs = _users_in_city(User.objects.filter(
-            role=User.Role.AUTHORITY,
-            is_active=True,
-        ), sighting.sighting_city or "")
         admin_qs = User.objects.filter(role=User.Role.ADMIN, is_active=True)
-        for officer in authority_qs:
+        for officer in _active_authorities_in(sighting.sighting_city or ""):
             _create_in_app(
                 officer,
                 Notification.Type.SYSTEM,
@@ -315,10 +316,7 @@ def notify_sighting_submitted_extended(sighting):
         owner = sighting.top_match_bike.owner
         # Photo + high confidence -> urgent authority + ping owner
         if has_photo and score >= PHOTO_HIGH_CONFIDENCE_THRESHOLD:
-            sighting.owner_confirmation_status = "pending"
-            sighting.owner_notified_at = now
-            sighting.owner_response_deadline = now + timedelta(hours=OWNER_RESPONSE_HOURS)
-            sighting.save(update_fields=["owner_confirmation_status", "owner_notified_at", "owner_response_deadline"])
+            _open_owner_handshake(sighting, now, OWNER_RESPONSE_HOURS)
 
             _create_in_app(
                 owner,
@@ -330,12 +328,7 @@ def notify_sighting_submitted_extended(sighting):
             )
 
             # Notify authorities urgently
-            from apps.users.models import User
-            authority_qs = _users_in_city(User.objects.filter(
-                role=User.Role.AUTHORITY,
-                is_active=True,
-            ), sighting.sighting_city or "")
-            for officer in authority_qs:
+            for officer in _active_authorities_in(sighting.sighting_city or ""):
                 _create_in_app(
                     officer,
                     Notification.Type.URGENT,
@@ -348,10 +341,7 @@ def notify_sighting_submitted_extended(sighting):
 
         # Low-confidence or description-only: ping owner for confirmation first
         if score >= OWNER_ALERT_THRESHOLD:
-            sighting.owner_confirmation_status = "pending"
-            sighting.owner_notified_at = now
-            sighting.owner_response_deadline = now + timedelta(hours=OWNER_RESPONSE_HOURS)
-            sighting.save(update_fields=["owner_confirmation_status", "owner_notified_at", "owner_response_deadline"])
+            _open_owner_handshake(sighting, now, OWNER_RESPONSE_HOURS)
 
             _create_in_app(
                 owner,
@@ -396,12 +386,7 @@ def notify_owner_response(sighting, response, responder):
 
     if response == "yes":
         # Notify authorities with escalation flag
-        from apps.users.models import User
-        authority_qs = _users_in_city(User.objects.filter(
-            role=User.Role.AUTHORITY,
-            is_active=True,
-        ), sighting.sighting_city or "")
-        for officer in authority_qs:
+        for officer in _active_authorities_in(sighting.sighting_city or ""):
             _create_in_app(
                 officer,
                 Notification.Type.URGENT,
@@ -439,7 +424,6 @@ def notify_owner_response(sighting, response, responder):
 
 def auto_escalate_pending_owner_responses(hours=None):
     from apps.sightings.models import SightingReport
-    from apps.users.models import User
 
     now = timezone.now()
     grace_hours = hours if hours is not None else getattr(settings, "SIGHTING_OWNER_RESPONSE_HOURS", 24)
@@ -455,11 +439,7 @@ def auto_escalate_pending_owner_responses(hours=None):
     escalated_count = 0
     for sighting in pending:
         report = _get_report_for_sighting(sighting)
-        authority_qs = _users_in_city(User.objects.filter(
-            role=User.Role.AUTHORITY,
-            is_active=True,
-        ), sighting.sighting_city or "")
-        for officer in authority_qs:
+        for officer in _active_authorities_in(sighting.sighting_city or ""):
             _create_in_app(
                 officer,
                 Notification.Type.URGENT,

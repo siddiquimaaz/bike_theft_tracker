@@ -6,12 +6,37 @@ from datetime import timedelta
 from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv(override=True)
+# False: already-set env vars (e.g. CI, `DB_PORT=5432 pytest`) win over `.env`.
+load_dotenv(override=False)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
+def _rasterio_wheel_gdal_geos() -> tuple[str | None, str | None]:
+    """Prefer GDAL/GEOS from the rasterio wheel (matches venv Python ABI on Windows)."""
+    if os.name != "nt":
+        return None, None
+    try:
+        import rasterio
+    except ImportError:
+        return None, None
+    libs = Path(rasterio.__file__).resolve().parent.parent / "rasterio.libs"
+    if not libs.is_dir():
+        return None, None
+    gdal_dlls = sorted(libs.glob("gdal-*.dll"))
+    geos_dlls = sorted(libs.glob("geos_c-*.dll"))
+    if not gdal_dlls or not geos_dlls:
+        return None, None
+    return str(gdal_dlls[0]), str(geos_dlls[0])
+
+
 def _resolve_gdal_library_path():
+    # Prefer pip's rasterio wheel on Windows: a global GDAL_LIBRARY_PATH in the OS
+    # environment often points at C:\\Program Files\\GDAL (ABI mismatch → WinError 127).
+    gdal_r, _ = _rasterio_wheel_gdal_geos()
+    if gdal_r and os.name == "nt":
+        return gdal_r
+
     env_path = os.getenv("GDAL_LIBRARY_PATH")
     if env_path:
         return env_path
@@ -32,6 +57,10 @@ def _resolve_gdal_library_path():
 
 
 def _resolve_geos_library_path():
+    _, geos_r = _rasterio_wheel_gdal_geos()
+    if geos_r and os.name == "nt":
+        return geos_r
+
     env_path = os.getenv("GEOS_LIBRARY_PATH")
     if env_path:
         return env_path
@@ -125,6 +154,16 @@ GDAL_LIBRARY_PATH = _resolve_gdal_library_path()
 GEOS_LIBRARY_PATH = _resolve_geos_library_path()
 
 if os.name == "nt":
+    if GDAL_LIBRARY_PATH and Path(GDAL_LIBRARY_PATH).resolve().parent.name == "rasterio.libs":
+        try:
+            import rasterio
+
+            pdata = Path(rasterio.__file__).resolve().parent / "proj_data"
+            if pdata.is_dir() and not os.getenv("PROJ_LIB"):
+                os.environ["PROJ_LIB"] = str(pdata)
+        except ImportError:
+            pass
+
     _DLL_DIRECTORY_HANDLES = []
     dll_dirs = set()
     for lib_path in (GDAL_LIBRARY_PATH, GEOS_LIBRARY_PATH):
@@ -251,7 +290,7 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # ─── Security ─────────────────────────────────────────────────────────────────
-SECURE_BROWSER_XSS_FILTER = True
+# SECURE_BROWSER_XSS_FILTER removed in Django 5.0 (browsers ignore X-XSS-Protection).
 SECURE_CONTENT_TYPE_NOSNIFF = True
 X_FRAME_OPTIONS = "DENY"
 if not DEBUG:

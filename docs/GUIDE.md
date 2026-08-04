@@ -109,17 +109,17 @@ C:\Users\Maaz\localdev\postgresql-15\pgsql\bin\pg_ctl.exe ^
 ```bash
 # Ubuntu/Debian
 sudo apt update
-sudo apt install -y python3.11 python3.11-venv python3-pip \
+sudo apt install -y python3.12 python3.12-venv python3-pip \
     postgresql-15 postgresql-15-postgis-3 \
     gdal-bin libgdal-dev git
 
 # macOS (Homebrew)
-brew install python@3.11 postgresql@15 postgis gdal git
+brew install python@3.12 postgresql@15 postgis gdal git
 ```
 
 #### Option B — Windows
 
-1. **Python 3.11** — download from https://www.python.org/downloads/  
+1. **Python 3.12+** — download from https://www.python.org/downloads/  
    During install: check "Add Python to PATH"
 
 2. **PostgreSQL 15 + PostGIS** — download the installer from https://www.enterprisedb.com/downloads/postgres-postgresql-downloads  
@@ -178,13 +178,13 @@ CREATE EXTENSION IF NOT EXISTS postgis;
 
 ```bash
 # Linux/macOS
-python3.11 -m venv venv
+python3.12 -m venv venv
 source venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
 
 # Windows (PowerShell)
-py -3.11 -m venv venv
+py -3.12 -m venv venv
 venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 pip install -r requirements.txt
@@ -321,19 +321,19 @@ They follow these exact steps:
 **Linux (Ubuntu/Debian):**
 ```bash
 sudo apt update
-sudo apt install -y python3.11 python3.11-venv python3-pip \
+sudo apt install -y python3.12 python3.12-venv python3-pip \
     postgresql-15 postgresql-15-postgis-3 \
     gdal-bin libgdal-dev git
 ```
 
 **macOS:**
 ```bash
-brew install python@3.11 postgresql@15 postgis gdal
+brew install python@3.12 postgresql@15 postgis gdal
 brew services start postgresql@15
 ```
 
 **Windows:**
-- Python 3.11 from python.org
+- Python 3.12+ from python.org
 - PostgreSQL 15 + PostGIS via EDB installer (enterprisedb.com)
 - GDAL via `winget install GISInternals.GDAL` or OSGeo4W
 
@@ -348,11 +348,11 @@ cd bike-theft-tracker
 
 ```bash
 # Linux/macOS
-python3.11 -m venv venv
+python3.12 -m venv venv
 source venv/bin/activate
 
 # Windows
-py -3.11 -m venv venv
+py -3.12 -m venv venv
 venv\Scripts\activate
 ```
 

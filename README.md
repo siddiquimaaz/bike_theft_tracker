@@ -3,7 +3,22 @@
 **Group 58 | Batch 2022F | BS Computer Science | SSUET, Karachi**
 
 An intelligent web platform for reporting, tracking, and recovering stolen motorcycles.
-Built with Django 4.2 + DRF (backend) and React 18 + Vite (frontend), backed by PostgreSQL/PostGIS and a suite of ML analysis tools.
+Built with Django 6.0 + DRF (backend) and React 19 + Vite (frontend), backed by PostgreSQL/PostGIS and a suite of ML analysis tools.
+
+---
+
+## First-time install (Windows)
+
+From the repo root, in order:
+
+1. **`scripts\setup_env.bat`** — creates `btt-backend\.env` from `.env.example` if it does not exist (never overwrites). Then edit values for your machine.
+2. **`scripts\install_all.bat`** — checks Python 3.12+ and Node/npm, creates **`venv`** at the repo root, installs `btt-backend\requirements.txt`, runs **`npm ci`** in `btt-frontend` when `package-lock.json` is present (otherwise `npm install`).
+3. **PostgreSQL 15** — install the database server, then add **PostGIS** (GeoDjango will not migrate without it). **Windows (automated):** from an elevated PowerShell, run **`scripts\install_postgis_pg15.ps1`** (downloads the official bundle, silent-installs, enables `postgis` on `template1` and `bikethefttracker` if that DB exists). **Or manual:** **Stack Builder** (from the PostgreSQL install or Start menu) → your instance → spatial extensions → **PostGIS**. Confirm `postgis.control` exists under `C:\Program Files\PostgreSQL\15\share\extension\` (path varies by version).
+4. **GDAL / env tuning** — see **[docs/README_NEWMACHINE.md](docs/README_NEWMACHINE.md)**. Set **`DB_PORT`** in `btt-backend\.env` to the port your cluster actually listens on (often **5432**).
+5. With `venv` activated: **`cd btt-backend`** then **`python manage.py migrate`** and **`python manage.py create_demo_users`** (Playwright also runs these before **`npm run test:e2e`**). For **`pytest`**, the DB user must be allowed to create the test database: as `postgres` run **`ALTER ROLE bttadmin CREATEDB;`** (use your `DB_USER` value if different).
+6. **End-to-end tests** — from **`btt-frontend`**: **`npm run test:e2e`** starts Django + Vite, migrates, seeds demo users, then runs Playwright (requires steps 1–4 complete). Set **`BTT_PYTHON`** if your interpreter is not **`..\venv\Scripts\python.exe`**.
+
+PowerShell equivalents: `scripts\setup_env.ps1`, `scripts\install_all.ps1`.
 
 ---
 
@@ -38,9 +53,9 @@ reset_and_start.bat
 
 | Layer | Technology |
 |-------|-----------|
-| Backend | Python 3.11 · Django 4.2 · DRF |
+| Backend | Python 3.12+ · Django 6.0 · DRF 3.17 |
 | Database | PostgreSQL 15 + PostGIS 3.3 |
-| Frontend | React 18 · Vite · Tailwind CSS |
+| Frontend | React 19 · Vite 8 · Tailwind CSS 4 |
 | Auth | JWT (SimpleJWT) |
 | ML | scikit-learn DBSCAN · rapidfuzz · pandas |
 | Notifications | In-app · Email (SMTP) · SMS (Twilio) |
@@ -95,7 +110,7 @@ bike_theft_tracker/
   - Trend analytics — monthly theft/recovery rates per city
   - Recovery zone analysis — PostGIS spatial query
 - **Audit log**: append-only, DB-level REVOKE prevents modification
-- **378 backend tests · ≥ 90 % coverage**
+- **386 backend tests · ≥ 90 % coverage**
 
 ---
 

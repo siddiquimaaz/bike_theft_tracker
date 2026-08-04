@@ -56,60 +56,48 @@ class Command(BaseCommand):
         else:
             cities = [city]
 
+        # (label, run, save, skip-noun, success-line builder).  Only the hotspot
+        # job counts toward success_count — it is the one the summary reports on.
+        jobs = (
+            (
+                "Hotspot", run_hotspot_analysis, save_hotspot_cache, "records",
+                lambda r: f"{len(r['clusters'])} clusters from {r['record_count']} records",
+            ),
+            (
+                "Corridors", run_corridor_analysis, save_corridor_cache, "paired records",
+                lambda r: (
+                    f"{len(r['corridors'])} corridors "
+                    f"from {r['record_count']} theft→recovery pairs"
+                ),
+            ),
+            (
+                "Radius", run_recovery_radius, save_recovery_radius_cache, "paired records",
+                lambda r: (
+                    f"mean={r['mean_km']} km, median={r['median_km']} km "
+                    f"({r['record_count']} records)"
+                ),
+            ),
+        )
+
         success_count = 0
         for target_city in cities:
-            label = target_city or "national"
-            self.stdout.write(f"\n  ── {label} ──")
+            self.stdout.write(f"\n  ── {target_city or 'national'} ──")
 
-            # Hotspot clusters
-            try:
-                result = run_hotspot_analysis(city=target_city)
-                if result.get("skipped"):
-                    self.stdout.write(self.style.WARNING(
-                        f"    Hotspot: skipped ({result['record_count']} records < minimum)"
-                    ))
-                else:
-                    save_hotspot_cache(result, city=target_city)
-                    self.stdout.write(self.style.SUCCESS(
-                        f"    Hotspot: ✓ {len(result['clusters'])} clusters "
-                        f"from {result['record_count']} records"
-                    ))
-                    success_count += 1
-            except Exception as exc:
-                self.stderr.write(self.style.ERROR(f"    Hotspot FAILED: {exc}"))
-
-            # Corridor analysis
-            try:
-                c_result = run_corridor_analysis(city=target_city)
-                if c_result.get("skipped"):
-                    self.stdout.write(self.style.WARNING(
-                        f"    Corridors: skipped ({c_result['record_count']} paired records < minimum)"
-                    ))
-                else:
-                    save_corridor_cache(c_result, city=target_city)
-                    self.stdout.write(self.style.SUCCESS(
-                        f"    Corridors: ✓ {len(c_result['corridors'])} corridors "
-                        f"from {c_result['record_count']} theft→recovery pairs"
-                    ))
-            except Exception as exc:
-                self.stderr.write(self.style.ERROR(f"    Corridors FAILED: {exc}"))
-
-            # Recovery radius
-            try:
-                r_result = run_recovery_radius(city=target_city)
-                if r_result.get("skipped"):
-                    self.stdout.write(self.style.WARNING(
-                        f"    Radius: skipped ({r_result['record_count']} paired records < minimum)"
-                    ))
-                else:
-                    save_recovery_radius_cache(r_result, city=target_city)
-                    self.stdout.write(self.style.SUCCESS(
-                        f"    Radius: ✓ mean={r_result['mean_km']} km, "
-                        f"median={r_result['median_km']} km "
-                        f"({r_result['record_count']} records)"
-                    ))
-            except Exception as exc:
-                self.stderr.write(self.style.ERROR(f"    Radius FAILED: {exc}"))
+            for name, run, save, skip_noun, describe in jobs:
+                try:
+                    result = run(city=target_city)
+                    if result.get("skipped"):
+                        self.stdout.write(self.style.WARNING(
+                            f"    {name}: skipped "
+                            f"({result['record_count']} {skip_noun} < minimum)"
+                        ))
+                        continue
+                    save(result, city=target_city)
+                    self.stdout.write(self.style.SUCCESS(f"    {name}: ✓ {describe(result)}"))
+                    if name == "Hotspot":
+                        success_count += 1
+                except Exception as exc:
+                    self.stderr.write(self.style.ERROR(f"    {name} FAILED: {exc}"))
 
         # Write completion to audit log
         self._write_audit_log(success_count, len(cities))

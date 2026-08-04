@@ -71,21 +71,12 @@ def find_fuzzy_matches(
     from apps.reports.models import TheftReport
 
     # Fetch every bike with an ACTIVE theft report — i.e. any status except
-    # recovered/closed.  This set must stay in sync with Bike.is_stolen,
-    # otherwise sightings silently fail to match against cases that have
-    # already progressed beyond NEW_CASE.
-    ACTIVE_THEFT_STATUSES = [
-        TheftReport.Status.STOLEN,
-        TheftReport.Status.UNDER_INVESTIGATION,
-        TheftReport.Status.NEW_CASE,
-        TheftReport.Status.UNDER_REVIEW,
-        TheftReport.Status.ACTIVE_INVESTIGATION,
-        TheftReport.Status.BIKE_LOCATED,
-        TheftReport.Status.PENDING_VERIFICATION,
-    ]
+    # recovered/closed.  Shared with Bike.is_stolen via TheftReport.ACTIVE_STATUSES;
+    # were the two to drift, sightings would silently fail to match against
+    # cases that have already progressed beyond NEW_CASE.
     stolen_reports = (
         TheftReport.objects.filter(
-            status__in=ACTIVE_THEFT_STATUSES,
+            status__in=TheftReport.ACTIVE_STATUSES,
             deleted_at__isnull=True,
         )
         .select_related("bike", "bike__owner")

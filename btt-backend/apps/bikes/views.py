@@ -86,15 +86,7 @@ class StolenBikeListView(generics.ListAPIView):
         from apps.reports.models import TheftReport
         active_report = TheftReport.objects.filter(
             bike=OuterRef("pk"),
-            status__in=[
-                TheftReport.Status.STOLEN,
-                TheftReport.Status.UNDER_INVESTIGATION,
-                TheftReport.Status.NEW_CASE,
-                TheftReport.Status.UNDER_REVIEW,
-                TheftReport.Status.ACTIVE_INVESTIGATION,
-                TheftReport.Status.BIKE_LOCATED,
-                TheftReport.Status.PENDING_VERIFICATION,
-            ],
+            status__in=TheftReport.ACTIVE_STATUSES,
             deleted_at__isnull=True,
         )
         return (
@@ -159,15 +151,7 @@ def city_report_count(request, city):
 
     count = TheftReport.objects.filter(
         theft_city__iexact=city,
-        status__in=[
-            TheftReport.Status.STOLEN,
-            TheftReport.Status.UNDER_INVESTIGATION,
-            TheftReport.Status.NEW_CASE,
-            TheftReport.Status.UNDER_REVIEW,
-            TheftReport.Status.ACTIVE_INVESTIGATION,
-            TheftReport.Status.BIKE_LOCATED,
-            TheftReport.Status.PENDING_VERIFICATION,
-        ],
+        status__in=TheftReport.ACTIVE_STATUSES,
         deleted_at__isnull=True,
     ).count()
 

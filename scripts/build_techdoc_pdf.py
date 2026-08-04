@@ -161,7 +161,7 @@ story += [code(
     "| React + Vite    | ------------------> | Nginx (TLS, static)    |\n"
     "| (Tailwind, RR)  | <------------------ |          |             |\n"
     "+-----------------+   JWT Bearer tokens |          v             |\n"
-    "                                        | Gunicorn (Django 4.2)  |\n"
+    "                                        | Gunicorn (Django 5.2)  |\n"
     "                                        |  - DRF + SimpleJWT     |\n"
     "                                        |  - apps/{users,bikes,  |\n"
     "                                        |    reports,sightings,  |\n"
@@ -238,7 +238,7 @@ story += [p(
 # 4. Backend Architecture
 story += section("4. Backend Architecture")
 story += [p(
-    "<b>Stack:</b> Django 4.2, DRF 3.14, SimpleJWT 5.3, GeoDjango (PostGIS), RapidFuzz 3.x, "
+    "<b>Stack:</b> Django 5.2, DRF 3.16, SimpleJWT 5.5, GeoDjango (PostGIS), RapidFuzz 3.x, "
     "scikit-learn 1.3 (DBSCAN), pandas 2.1, Twilio 8.x."
 )]
 story += subsection("App boundaries (btt-backend/apps/)")

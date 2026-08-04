@@ -67,15 +67,7 @@ class Bike(models.Model):
         from apps.reports.models import TheftReport
 
         return self.theft_reports.filter(
-            status__in=[
-                TheftReport.Status.STOLEN,
-                TheftReport.Status.UNDER_INVESTIGATION,
-                TheftReport.Status.NEW_CASE,
-                TheftReport.Status.UNDER_REVIEW,
-                TheftReport.Status.ACTIVE_INVESTIGATION,
-                TheftReport.Status.BIKE_LOCATED,
-                TheftReport.Status.PENDING_VERIFICATION,
-            ],
+            status__in=TheftReport.ACTIVE_STATUSES,
             deleted_at__isnull=True,
         ).exists()
 
@@ -84,15 +76,7 @@ class Bike(models.Model):
         from apps.reports.models import TheftReport
 
         return self.theft_reports.filter(
-            status__in=[
-                TheftReport.Status.STOLEN,
-                TheftReport.Status.UNDER_INVESTIGATION,
-                TheftReport.Status.NEW_CASE,
-                TheftReport.Status.UNDER_REVIEW,
-                TheftReport.Status.ACTIVE_INVESTIGATION,
-                TheftReport.Status.BIKE_LOCATED,
-                TheftReport.Status.PENDING_VERIFICATION,
-            ],
+            status__in=TheftReport.ACTIVE_STATUSES,
             deleted_at__isnull=True,
         ).first()
 

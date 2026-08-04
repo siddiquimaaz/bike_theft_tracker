@@ -4,20 +4,22 @@ Community sighting submission — auto-runs fuzzy match on POST.
 Authority verifies sightings, which notifies the bike owner.
 """
 import logging
-import threading
-import uuid
-import os
-from django.conf import settings
 from django.contrib.gis.geos import Point
+from django.db.models import Q
 from rest_framework import generics, status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework import serializers
 
+from apps.common.background import background_task, run_in_background
+from apps.common.city import cities_match
+from apps.common.uploads import save_upload
 from apps.users.permissions import IsAnyAuthenticatedRole, IsAuthorityOrAdmin, IsOwner
 from .models import SightingReport
 
 logger = logging.getLogger(__name__)
+
+NOT_FOUND_ERROR = "Sighting not found."
 
 
 # ─── Serializers ──────────────────────────────────────────────────────────────
@@ -44,14 +46,7 @@ class SightingCreateSerializer(serializers.ModelSerializer):
             validated_data["sighting_location"] = Point(lng, lat, srid=4326)
 
         if photo:
-            ext = photo.name.rsplit(".", 1)[-1].lower()
-            filename = f"{uuid.uuid4()}.{ext}"
-            path = os.path.join(settings.MEDIA_ROOT, "sightings", filename)
-            os.makedirs(os.path.dirname(path), exist_ok=True)
-            with open(path, "wb+") as dest:
-                for chunk in photo.chunks():
-                    dest.write(chunk)
-            validated_data["photo_url"] = filename
+            validated_data["photo_url"] = save_upload(photo, "sightings")
 
         sighting = SightingReport(**validated_data)
 
@@ -64,7 +59,6 @@ class SightingCreateSerializer(serializers.ModelSerializer):
             if matches:
                 best = matches[0]
                 sighting.fuzzy_match_score = best["score"]
-                from apps.bikes.models import Bike
                 try:
                     sighting.top_match_bike_id = int(best["bike_id"])
                 except (ValueError, KeyError):
@@ -140,21 +134,17 @@ class SightingListCreateView(generics.ListCreateAPIView):
 
     def get_queryset(self):
         user = self.request.user
+        qs = SightingReport.objects.select_related("top_match_bike", "top_match_bike__owner")
         if user.is_authority or user.is_admin:
             # Authority/Admin: unverified sightings sorted by match confidence
-            return (
-                SightingReport.objects.filter(is_verified=False)
-                .select_related("top_match_bike", "top_match_bike__owner")
-                .order_by("-fuzzy_match_score", "-created_at")
-            )
+            return qs.filter(is_verified=False).order_by("-fuzzy_match_score", "-created_at")
         if user.is_owner:
-            from django.db.models import Q
             # Owner sees:
             #   1. Sightings they personally submitted (community role behaviour)
             #   2. Unarchived, pending sightings where the top-matched bike is theirs
             #      (the ones they need to confirm/deny)
             return (
-                SightingReport.objects.filter(
+                qs.filter(
                     Q(sighter=user) |
                     Q(
                         top_match_bike__owner=user,
@@ -162,24 +152,15 @@ class SightingListCreateView(generics.ListCreateAPIView):
                         is_archived=False,
                     )
                 )
-                .select_related("top_match_bike", "top_match_bike__owner")
                 .distinct()
                 .order_by("-created_at")
             )
         # Community: their own submissions only
-        return (
-            SightingReport.objects.filter(sighter=user)
-            .select_related("top_match_bike", "top_match_bike__owner")
-            .order_by("-created_at")
-        )
+        return qs.filter(sighter=user).order_by("-created_at")
 
     def perform_create(self, serializer):
         sighting = serializer.save(sighter=self.request.user)
-        threading.Thread(
-            target=_notify_sighting_submitted,
-            args=(sighting,),
-            daemon=True,
-        ).start()
+        run_in_background(_notify_sighting_submitted, sighting)
 
 
 class SightingDetailView(generics.RetrieveAPIView):
@@ -193,7 +174,6 @@ class SightingDetailView(generics.RetrieveAPIView):
         if user.is_authority or user.is_admin:
             return qs
         if user.is_owner:
-            from django.db.models import Q
             # Owner can retrieve sightings they submitted OR sightings of their bikes
             return qs.filter(
                 Q(sighter=user) | Q(top_match_bike__owner=user)
@@ -213,7 +193,7 @@ def verify_sighting(request, pk):
     try:
         sighting = SightingReport.objects.get(pk=pk)
     except SightingReport.DoesNotExist:
-        return Response({"error": "Sighting not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response({"error": NOT_FOUND_ERROR}, status=status.HTTP_404_NOT_FOUND)
 
     if request.user.is_authority:
         if not request.user.city:
@@ -221,7 +201,7 @@ def verify_sighting(request, pk):
                 {"error": "Your account has no city configured. Contact an admin."},
                 status=status.HTTP_403_FORBIDDEN,
             )
-        if (sighting.sighting_city or "").lower() != request.user.city.lower():
+        if not cities_match(sighting.sighting_city, request.user.city):
             return Response(
                 {"error": "You can only verify sightings in your assigned city."},
                 status=status.HTTP_403_FORBIDDEN,
@@ -242,11 +222,7 @@ def verify_sighting(request, pk):
     sighting.verified_by = request.user
     sighting.save(update_fields=["bike", "is_verified", "verified_by"])
 
-    threading.Thread(
-        target=_notify_sighting_verified,
-        args=(sighting,),
-        daemon=True,
-    ).start()
+    run_in_background(_notify_sighting_verified, sighting)
 
     return Response({
         "id": sighting.id,
@@ -266,14 +242,14 @@ def owner_confirm_sighting(request, pk):
     try:
         sighting = SightingReport.objects.get(pk=pk)
     except SightingReport.DoesNotExist:
-        return Response({"error": "Sighting not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response({"error": NOT_FOUND_ERROR}, status=status.HTTP_404_NOT_FOUND)
 
     if not sighting.top_match_bike:
         return Response({"error": "No top match available for this sighting."}, status=status.HTTP_400_BAD_REQUEST)
 
-    owner = sighting.top_match_bike.owner
-    if request.user != owner:
-        return Response({"error": "Sighting not found."}, status=status.HTTP_404_NOT_FOUND)
+    # Deliberately 404, not 403: a non-owner must not learn the sighting exists.
+    if request.user != sighting.top_match_bike.owner:
+        return Response({"error": NOT_FOUND_ERROR}, status=status.HTTP_404_NOT_FOUND)
 
     # Block duplicate definitive responses
     if sighting.owner_confirmation_status in ("yes", "no"):
@@ -298,17 +274,13 @@ def owner_confirm_sighting(request, pk):
 
 # ─── Notification helpers ──────────────────────────────────────────────────────
 
+@background_task("Failed to send sighting submitted notification: %s")
 def _notify_sighting_submitted(sighting):
     from apps.notifications.notification_service import notify_sighting_submitted_extended
-    try:
-        notify_sighting_submitted_extended(sighting)
-    except Exception as exc:
-        logger.error("Failed to send sighting submitted notification: %s", exc)
+    notify_sighting_submitted_extended(sighting)
 
 
+@background_task("Failed to send sighting verified notification: %s")
 def _notify_sighting_verified(sighting):
     from apps.notifications.notification_service import notify_sighting_verified
-    try:
-        notify_sighting_verified(sighting)
-    except Exception as exc:
-        logger.error("Failed to send sighting verified notification: %s", exc)
+    notify_sighting_verified(sighting)

@@ -3,23 +3,21 @@ apps/reports/views.py
 TheftReport and RecoveryRecord views.
 Status update fires Django signal → notification engine.
 """
-import logging
-import threading
 from django.db import transaction
-from django.db.models import Q
-from django.db.models.functions import Lower, Trim
+from django.utils import timezone
 from rest_framework import generics, status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 
+from apps.common.background import background_task, run_in_background
+from apps.common.city import filter_by_city, normalize_city
 from apps.users.permissions import (
     IsOwner,
-    IsAuthority,
     IsAuthorityOrAdmin,
     IsAnyAuthenticatedRole,
     IsAdminUser,
 )
-from .models import TheftReport, RecoveryRecord
+from .models import TheftReport
 from .timeline import add_case_timeline_event
 from .serializers import (
     TheftReportCreateSerializer,
@@ -31,18 +29,23 @@ from .serializers import (
     RecoveryRecordSerializer,
 )
 
-logger = logging.getLogger(__name__)
+NO_CITY_ERROR = "Your account has no city configured. Contact an admin."
+NOT_FOUND_ERROR = "Report not found."
 
 
-def _normalize_city(city):
-    return (city or "").strip().lower()
-
-
-def _filter_queryset_by_city(qs, city_value, field_name):
-    normalized_city = _normalize_city(city_value)
-    if not normalized_city:
-        return qs.none()
-    return qs.annotate(_city_norm=Lower(Trim(field_name))).filter(_city_norm=normalized_city)
+def _scope_reports_to_user(qs, user):
+    """
+    Narrow a TheftReport queryset to what `user` is allowed to see:
+    owners see their own cases, authority officers their city's, admins all.
+    Community users read the sanitised feed instead, never full case data.
+    """
+    if user.is_owner:
+        return qs.filter(reported_by=user)
+    if user.is_authority:
+        return filter_by_city(qs, user.city, "theft_city")
+    if user.is_admin:
+        return qs
+    return qs.none()
 
 
 class TheftReportListCreateView(generics.ListCreateAPIView):
@@ -68,16 +71,8 @@ class TheftReportListCreateView(generics.ListCreateAPIView):
         return TheftReportListSerializer
 
     def get_queryset(self):
-        user = self.request.user
         qs = TheftReport.objects.filter(deleted_at__isnull=True).select_related("bike")
-        if user.is_owner:
-            return qs.filter(reported_by=user)
-        if user.is_authority:
-            return _filter_queryset_by_city(qs, user.city, "theft_city")
-        if user.is_admin:
-            return qs
-        # Community users cannot read full theft case data.
-        return qs.none()
+        return _scope_reports_to_user(qs, self.request.user)
 
     def perform_create(self, serializer):
         report = serializer.save(reported_by=self.request.user)
@@ -87,12 +82,7 @@ class TheftReportListCreateView(generics.ListCreateAPIView):
             actor=self.request.user,
             metadata={"status": report.status},
         )
-        # Fire post-create notification in background
-        threading.Thread(
-            target=_notify_report_created,
-            args=(report,),
-            daemon=True,
-        ).start()
+        run_in_background(_notify_report_created, report)
 
 
 class TheftReportDetailView(generics.RetrieveDestroyAPIView):
@@ -108,20 +98,12 @@ class TheftReportDetailView(generics.RetrieveDestroyAPIView):
         return [IsAnyAuthenticatedRole()]
 
     def get_queryset(self):
-        user = self.request.user
         qs = TheftReport.objects.filter(deleted_at__isnull=True).select_related(
             "bike", "reported_by", "recovery"
         )
-        if user.is_owner:
-            return qs.filter(reported_by=user)
-        if user.is_authority:
-            return _filter_queryset_by_city(qs, user.city, "theft_city")
-        if user.is_admin:
-            return qs
-        return qs.none()
+        return _scope_reports_to_user(qs, self.request.user)
 
     def destroy(self, request, *args, **kwargs):
-        from django.utils import timezone
         report = self.get_object()
         report.deleted_at = timezone.now()
         report.save(update_fields=["deleted_at"])
@@ -150,22 +132,11 @@ class CommunityTheftFeedView(generics.ListAPIView):
         return super().list(request, *args, **kwargs)
 
     def get_queryset(self):
-        user = self.request.user
-        visible_statuses = [
-            TheftReport.Status.STOLEN,
-            TheftReport.Status.UNDER_INVESTIGATION,
-            TheftReport.Status.NEW_CASE,
-            TheftReport.Status.UNDER_REVIEW,
-            TheftReport.Status.ACTIVE_INVESTIGATION,
-            TheftReport.Status.BIKE_LOCATED,
-            TheftReport.Status.PENDING_VERIFICATION,
-            TheftReport.Status.RECOVERED,
-        ]
         qs = TheftReport.objects.filter(
             deleted_at__isnull=True,
-            status__in=visible_statuses,
+            status__in=TheftReport.COMMUNITY_VISIBLE_STATUSES,
         ).select_related("bike")
-        return _filter_queryset_by_city(qs, user.city, "theft_city").order_by("-created_at")
+        return filter_by_city(qs, self.request.user.city, "theft_city").order_by("-created_at")
 
 
 # ─── Authority role transition allowlist ──────────────────────────────────────
@@ -216,15 +187,14 @@ def update_report_status(request, pk):
     """
     queryset = TheftReport.objects.filter(deleted_at__isnull=True)
     if request.user.is_authority:
-        normalized_city = _normalize_city(request.user.city)
-        if not normalized_city:
-            return Response({"error": "Your account has no city configured. Contact an admin."}, status=status.HTTP_403_FORBIDDEN)
-        queryset = queryset.annotate(_city_norm=Lower(Trim("theft_city"))).filter(_city_norm=normalized_city)
+        if not normalize_city(request.user.city):
+            return Response({"error": NO_CITY_ERROR}, status=status.HTTP_403_FORBIDDEN)
+        queryset = filter_by_city(queryset, request.user.city, "theft_city")
 
     try:
         report = queryset.get(pk=pk)
     except TheftReport.DoesNotExist:
-        return Response({"error": "Report not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response({"error": NOT_FOUND_ERROR}, status=status.HTTP_404_NOT_FOUND)
 
     serializer = StatusUpdateSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
@@ -264,11 +234,7 @@ def update_report_status(request, pk):
     except ValueError as exc:
         return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
-    threading.Thread(
-        target=_notify_status_change,
-        args=(report, old_status),
-        daemon=True,
-    ).start()
+    run_in_background(_notify_status_change, report, old_status)
     add_case_timeline_event(
         report,
         "authority_status_changed",
@@ -295,23 +261,17 @@ def recovery_record(request, report_pk):
     GET  /api/reports/{id}/recovery/  — Retrieve recovery details
     PUT  /api/reports/{id}/recovery/  — Authority amends recovery record
     """
-    queryset = TheftReport.objects.filter(deleted_at__isnull=True)
-    if request.user.is_owner:
-        queryset = queryset.filter(reported_by=request.user)
-    elif request.user.is_authority:
-        normalized_city = _normalize_city(request.user.city)
-        if not normalized_city:
-            return Response({"error": "Your account has no city configured. Contact an admin."}, status=status.HTTP_403_FORBIDDEN)
-        queryset = queryset.annotate(_city_norm=Lower(Trim("theft_city"))).filter(_city_norm=normalized_city)
-    elif request.user.is_admin:
-        pass
-    else:
-        queryset = queryset.none()
+    if request.user.is_authority and not normalize_city(request.user.city):
+        return Response({"error": NO_CITY_ERROR}, status=status.HTTP_403_FORBIDDEN)
+
+    queryset = _scope_reports_to_user(
+        TheftReport.objects.filter(deleted_at__isnull=True), request.user
+    )
 
     try:
         report = queryset.get(pk=report_pk)
     except TheftReport.DoesNotExist:
-        return Response({"error": "Report not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response({"error": NOT_FOUND_ERROR}, status=status.HTTP_404_NOT_FOUND)
 
     if request.method == "GET":
         if not hasattr(report, "recovery"):
@@ -353,11 +313,7 @@ def recovery_record(request, report_pk):
             )
             report.transition_status(next_status, changed_by=request.user)
 
-        threading.Thread(
-            target=_notify_bike_recovered,
-            args=(report, recovery),
-            daemon=True,
-        ).start()
+        run_in_background(_notify_bike_recovered, report, recovery)
 
         return Response(RecoveryRecordSerializer(recovery).data, status=status.HTTP_201_CREATED)
 
@@ -373,11 +329,7 @@ def recovery_record(request, report_pk):
         serializer.is_valid(raise_exception=True)
         recovery = serializer.save()
 
-        threading.Thread(
-            target=_notify_recovery_amended,
-            args=(report, recovery, request.user),
-            daemon=True,
-        ).start()
+        run_in_background(_notify_recovery_amended, report, recovery, request.user)
 
         return Response(RecoveryRecordSerializer(recovery).data)
 
@@ -389,7 +341,7 @@ def confirm_recovery_receipt(request, report_pk):
     try:
         report = queryset.get(pk=report_pk)
     except TheftReport.DoesNotExist:
-        return Response({"error": "Report not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response({"error": NOT_FOUND_ERROR}, status=status.HTTP_404_NOT_FOUND)
 
     if report.status not in (TheftReport.Status.PENDING_VERIFICATION, TheftReport.Status.RECOVERED):
         return Response(
@@ -397,7 +349,6 @@ def confirm_recovery_receipt(request, report_pk):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    from django.utils import timezone
     report.owner_recovery_confirmed = True
     report.owner_recovery_confirmed_at = timezone.now()
     report.owner_recovery_confirmed_by = request.user
@@ -423,33 +374,29 @@ def confirm_recovery_receipt(request, report_pk):
 
 # ─── Notification triggers ─────────────────────────────────────────────────────
 
+# Imports stay inside the function bodies: the notification service imports
+# from this module, and deferring the lookup also lets tests patch the service
+# functions by their canonical path.
+
+@background_task("Failed to send theft report notification: %s")
 def _notify_report_created(report):
     from apps.notifications.notification_service import notify_theft_reported
-    try:
-        notify_theft_reported(report)
-    except Exception as exc:
-        logger.error("Failed to send theft report notification: %s", exc)
+    notify_theft_reported(report)
 
 
+@background_task("Failed to send status change notification: %s")
 def _notify_status_change(report, old_status):
     from apps.notifications.notification_service import notify_status_changed
-    try:
-        notify_status_changed(report, old_status)
-    except Exception as exc:
-        logger.error("Failed to send status change notification: %s", exc)
+    notify_status_changed(report, old_status)
 
 
+@background_task("Failed to send recovery notification: %s")
 def _notify_bike_recovered(report, recovery):
     from apps.notifications.notification_service import notify_bike_recovered
-    try:
-        notify_bike_recovered(report, recovery)
-    except Exception as exc:
-        logger.error("Failed to send recovery notification: %s", exc)
+    notify_bike_recovered(report, recovery)
 
 
+@background_task("Failed to send recovery amendment notification: %s")
 def _notify_recovery_amended(report, recovery, officer):
     from apps.notifications.notification_service import notify_recovery_amended
-    try:
-        notify_recovery_amended(report, recovery, officer)
-    except Exception as exc:
-        logger.error("Failed to send recovery amendment notification: %s", exc)
+    notify_recovery_amended(report, recovery, officer)

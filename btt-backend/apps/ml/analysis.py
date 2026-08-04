@@ -8,7 +8,28 @@ Results stored in MLAnalysisCache — dashboard reads from cache only.
 import logging
 from datetime import timedelta
 
+from apps.common.geo import EARTH_RADIUS_KM, haversine_km
+
 logger = logging.getLogger(__name__)
+
+# How long each cached analysis stays fresh.  Hotspot/corridor/radius are
+# recomputed nightly, so 25h covers a run that starts a little late; trends run
+# weekly and get 8 days for the same reason.
+_DAILY_TTL = timedelta(hours=25)
+_WEEKLY_TTL = timedelta(days=8)
+
+
+def _save_cache(analysis_type, result: dict, city: str | None, ttl: timedelta):
+    """Persist an analysis result to MLAnalysisCache with the given TTL."""
+    from django.utils import timezone
+    from .models import MLAnalysisCache
+    MLAnalysisCache.objects.create(
+        analysis_type=analysis_type,
+        scope_city=city,
+        result_data=result,
+        expires_at=timezone.now() + ttl,
+        record_count=result.get("record_count"),
+    )
 
 
 # ─── DBSCAN Hotspot Clustering ────────────────────────────────────────────────
@@ -72,7 +93,7 @@ def run_hotspot_analysis(city: str | None = None) -> dict:
     coords = df[["lat", "lng"]].values
 
     # DBSCAN with haversine metric — eps in radians, min_samples from settings
-    eps_rad = settings.ML_DBSCAN_EPS / 6371.0  # convert km-ish degrees to radians
+    eps_rad = settings.ML_DBSCAN_EPS / EARTH_RADIUS_KM  # convert km-ish degrees to radians
     db = DBSCAN(
         eps=eps_rad,
         min_samples=settings.ML_DBSCAN_MIN_SAMPLES,
@@ -90,20 +111,18 @@ def run_hotspot_analysis(city: str | None = None) -> dict:
         centroid_lat = float(cluster_pts["lat"].mean())
         centroid_lng = float(cluster_pts["lng"].mean())
 
-        # Approximate radius — max distance from centroid
-        from math import radians, sin, cos, sqrt, atan2
-        def haversine_km(lat1, lng1, lat2, lng2):
-            R = 6371
-            dlat = radians(lat2 - lat1)
-            dlng = radians(lng2 - lng1)
-            a = sin(dlat / 2) ** 2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlng / 2) ** 2
-            return 2 * R * atan2(sqrt(a), sqrt(1 - a))
-
-        max_radius_km = 0.0
-        for _, row in cluster_pts.iterrows():
-            d = haversine_km(centroid_lat, centroid_lng, row["lat"], row["lng"])
-            if d > max_radius_km:
-                max_radius_km = d
+        # Approximate radius — max distance from centroid.  Vectorised over the
+        # cluster rather than iterrows(), which materialises a Series per point.
+        lats = np.radians(cluster_pts["lat"].to_numpy(dtype=float))
+        lngs = np.radians(cluster_pts["lng"].to_numpy(dtype=float))
+        c_lat, c_lng = np.radians(centroid_lat), np.radians(centroid_lng)
+        a = (
+            np.sin((lats - c_lat) / 2) ** 2
+            + np.cos(c_lat) * np.cos(lats) * np.sin((lngs - c_lng) / 2) ** 2
+        )
+        max_radius_km = float(
+            (2 * EARTH_RADIUS_KM * np.arctan2(np.sqrt(a), np.sqrt(1 - a))).max()
+        )
 
         clusters.append({
             "cluster_id": int(cluster_id),
@@ -131,15 +150,8 @@ def run_hotspot_analysis(city: str | None = None) -> dict:
 
 def save_hotspot_cache(result: dict, city: str | None = None):
     """Persist DBSCAN result to MLAnalysisCache with 25-hour TTL."""
-    from django.utils import timezone
     from .models import MLAnalysisCache
-    MLAnalysisCache.objects.create(
-        analysis_type=MLAnalysisCache.AnalysisType.HOTSPOT_CLUSTERS,
-        scope_city=city,
-        result_data=result,
-        expires_at=timezone.now() + timedelta(hours=25),
-        record_count=result.get("record_count"),
-    )
+    _save_cache(MLAnalysisCache.AnalysisType.HOTSPOT_CLUSTERS, result, city, _DAILY_TTL)
 
 
 # ─── Trend Analytics ──────────────────────────────────────────────────────────
@@ -160,6 +172,7 @@ def run_trend_analytics() -> dict:
         logger.error("pandas missing: %s", exc)
         return {"error": str(exc)}
 
+    from django.conf import settings
     from apps.reports.models import TheftReport
 
     reports = list(
@@ -171,7 +184,16 @@ def run_trend_analytics() -> dict:
         return {"cities": [], "record_count": 0}
 
     df = pd.DataFrame(reports)
-    df["month"] = pd.to_datetime(df["created_at"]).dt.to_period("M").astype(str)
+    # created_at is stored UTC-aware. Bucket by month in the project's own
+    # timezone, not UTC: at UTC+5 a theft logged just after local midnight on
+    # the 1st would otherwise land in the previous month on the dashboard.
+    df["month"] = (
+        pd.to_datetime(df["created_at"], utc=True)
+        .dt.tz_convert(settings.TIME_ZONE)
+        .dt.tz_localize(None)
+        .dt.to_period("M")
+        .astype(str)
+    )
     df["is_recovered"] = df["status"] == "recovered"
 
     grouped = (
@@ -209,15 +231,8 @@ def run_trend_analytics() -> dict:
 
 def save_trend_cache(result: dict):
     """Persist trend analytics result with 8-day TTL."""
-    from django.utils import timezone
     from .models import MLAnalysisCache
-    MLAnalysisCache.objects.create(
-        analysis_type=MLAnalysisCache.AnalysisType.TREND_ANALYTICS,
-        scope_city=None,
-        result_data=result,
-        expires_at=timezone.now() + timedelta(days=8),
-        record_count=result.get("record_count"),
-    )
+    _save_cache(MLAnalysisCache.AnalysisType.TREND_ANALYTICS, result, None, _WEEKLY_TTL)
 
 
 # ─── Recovery Zone Analysis ────────────────────────────────────────────────────
@@ -297,7 +312,6 @@ def run_recovery_radius(city: str | None = None) -> dict:
         logger.error("numpy missing: %s", exc)
         return {"error": str(exc)}
 
-    from math import radians, sin, cos, sqrt, atan2
     from django.conf import settings
     from apps.reports.models import RecoveryRecord
 
@@ -321,19 +335,12 @@ def run_recovery_radius(city: str | None = None) -> dict:
         )
         return {"skipped": True, "record_count": len(records)}
 
-    def _haversine_km(lat1, lng1, lat2, lng2):
-        R = 6371.0
-        dlat = radians(lat2 - lat1)
-        dlng = radians(lng2 - lng1)
-        a = sin(dlat / 2) ** 2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlng / 2) ** 2
-        return 2 * R * atan2(sqrt(a), sqrt(1 - a))
-
     distances = []
     for rec in records:
         t_loc = rec.theft_report.theft_location
         r_loc = rec.recovery_location
         if t_loc and r_loc:
-            distances.append(_haversine_km(t_loc.y, t_loc.x, r_loc.y, r_loc.x))
+            distances.append(haversine_km(t_loc.y, t_loc.x, r_loc.y, r_loc.x))
 
     if not distances:
         return {"skipped": True, "record_count": 0}
@@ -358,15 +365,8 @@ def run_recovery_radius(city: str | None = None) -> dict:
 
 def save_recovery_radius_cache(result: dict, city: str | None = None):
     """Persist recovery radius result with 25-hour TTL."""
-    from django.utils import timezone
     from .models import MLAnalysisCache
-    MLAnalysisCache.objects.create(
-        analysis_type=MLAnalysisCache.AnalysisType.RECOVERY_RADIUS,
-        scope_city=city,
-        result_data=result,
-        expires_at=timezone.now() + timedelta(hours=25),
-        record_count=result.get("record_count"),
-    )
+    _save_cache(MLAnalysisCache.AnalysisType.RECOVERY_RADIUS, result, city, _DAILY_TTL)
 
 
 # ─── Theft-to-Recovery Corridor Analysis ──────────────────────────────────────
@@ -407,7 +407,7 @@ def run_corridor_analysis(city: str | None = None) -> dict:
         logger.error("ML dependencies missing: %s", exc)
         return {"error": str(exc)}
 
-    from math import radians, sin, cos, sqrt, atan2, degrees
+    from math import atan2, cos, degrees, pi, radians
     from django.conf import settings
     from apps.reports.models import RecoveryRecord
 
@@ -434,7 +434,7 @@ def run_corridor_analysis(city: str | None = None) -> dict:
         return {"skipped": True, "record_count": len(records), "corridors": [], "noise_points": 0}
 
     # Build displacement vector for each pair (in km, Cartesian approximation)
-    EARTH_KM = 6371.0
+    km_per_degree = EARTH_RADIUS_KM * pi / 180
     vectors = []
     for rec in records:
         t_loc = rec.theft_report.theft_location
@@ -445,8 +445,8 @@ def run_corridor_analysis(city: str | None = None) -> dict:
         r_lat, r_lng = r_loc.y, r_loc.x
         # Convert degree deltas to km (flat-earth approximation, valid for <100 km)
         mid_lat = radians((t_lat + r_lat) / 2)
-        dx_km = (r_lng - t_lng) * (EARTH_KM * cos(mid_lat)) * (3.14159265 / 180)
-        dy_km = (r_lat - t_lat) * EARTH_KM * (3.14159265 / 180)
+        dx_km = (r_lng - t_lng) * km_per_degree * cos(mid_lat)
+        dy_km = (r_lat - t_lat) * km_per_degree
         vectors.append((dx_km, dy_km))
 
     if not vectors:
@@ -515,12 +515,5 @@ def run_corridor_analysis(city: str | None = None) -> dict:
 
 def save_corridor_cache(result: dict, city: str | None = None):
     """Persist corridor analysis result with 25-hour TTL."""
-    from django.utils import timezone
     from .models import MLAnalysisCache
-    MLAnalysisCache.objects.create(
-        analysis_type=MLAnalysisCache.AnalysisType.CORRIDOR_ANALYSIS,
-        scope_city=city,
-        result_data=result,
-        expires_at=timezone.now() + timedelta(hours=25),
-        record_count=result.get("record_count"),
-    )
+    _save_cache(MLAnalysisCache.AnalysisType.CORRIDOR_ANALYSIS, result, city, _DAILY_TTL)

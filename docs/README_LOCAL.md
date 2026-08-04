@@ -18,7 +18,7 @@ Before presenting the app, follow `RESET_RUNBOOK.md` for a complete clean reset 
 |-----------|----------|---------|
 | PostgreSQL 15 | `C:\Users\Maaz\localdev\postgresql-15\` | Portable, runs on port **5433** |
 | PostGIS 3.6 | Installed inside PostgreSQL above | Extension active in `bikethefttracker` + `template1` |
-| Python venv | `D:\scripts\bike_theft_tracker\venv\` | Python 3.11.9, all packages installed |
+| Python venv | `D:\scripts\bike_theft_tracker\venv\` | Python 3.12+ recommended, all packages installed |
 | GDAL DLL | `venv\Lib\site-packages\rasterio.libs\` | Loaded via `.env` |
 | GEOS DLL | `venv\Lib\site-packages\shapely.libs\` | Loaded via `.env` |
 | Database | `bikethefttracker` | User: `bttadmin` / Password: `localdevpass123` |
@@ -346,7 +346,7 @@ D:\scripts\bike_theft_tracker\
 │   └── urls.py        Root URL routing
 ├── tests\             381 tests — 90%+ coverage
 ├── deploy\            Nginx, Gunicorn, cron configs (for production)
-├── venv\              Python 3.11 virtual environment (DO NOT commit)
+├── venv\              Python 3.12+ virtual environment (DO NOT commit)
 ├── .env               Your local secrets (DO NOT commit)
 ├── .env.example       Template with placeholder values (safe to commit)
 ├── requirements.txt   Python dependencies

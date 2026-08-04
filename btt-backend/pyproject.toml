@@ -1,0 +1,5 @@
+[project]
+name = "btt-backend"
+version = "0.0.0"
+description = "Bike Theft Tracker Django API"
+requires-python = ">=3.12"

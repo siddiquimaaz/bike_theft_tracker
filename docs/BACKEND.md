@@ -1,6 +1,6 @@
 # Bike Theft Tracker — Back-end (Django/DRF)
 
-This project’s back-end is a **Django 4.2 + Django REST Framework** API that powers the Bike Theft Tracker app. It provides **JWT authentication**, **role-based access control**, and the core business workflows for tracking stolen bikes, handling sightings, and notifying users.
+This project’s back-end is a **Django 6.0 + Django REST Framework** API that powers the Bike Theft Tracker app. It provides **JWT authentication**, **role-based access control**, and the core business workflows for tracking stolen bikes, handling sightings, and notifying users.
 
 ## What the back-end does
 

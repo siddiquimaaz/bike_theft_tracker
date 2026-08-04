@@ -6,6 +6,8 @@ Engine and chassis numbers are immutable after creation.
 import magic
 from django.conf import settings
 from rest_framework import serializers
+
+from apps.common.uploads import save_upload
 from .models import Bike
 
 
@@ -47,18 +49,10 @@ class BikeCreateSerializer(serializers.ModelSerializer):
         return photo
 
     def create(self, validated_data):
-        import uuid, os
         photo = validated_data.pop("photo", None)
         bike = Bike(**validated_data)
         if photo:
-            ext = photo.name.rsplit(".", 1)[-1].lower()
-            filename = f"{uuid.uuid4()}.{ext}"
-            upload_path = os.path.join(settings.MEDIA_ROOT, "bikes", filename)
-            os.makedirs(os.path.dirname(upload_path), exist_ok=True)
-            with open(upload_path, "wb+") as dest:
-                for chunk in photo.chunks():
-                    dest.write(chunk)
-            bike.photo_url = filename
+            bike.photo_url = save_upload(photo, "bikes")
         bike.save()
         return bike
 
@@ -73,19 +67,11 @@ class BikeUpdateSerializer(serializers.ModelSerializer):
         fields = ["color", "registration_number", "registration_city", "photo"]
 
     def update(self, instance, validated_data):
-        import uuid, os
         photo = validated_data.pop("photo", None)
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         if photo:
-            ext = photo.name.rsplit(".", 1)[-1].lower()
-            filename = f"{uuid.uuid4()}.{ext}"
-            upload_path = os.path.join(settings.MEDIA_ROOT, "bikes", filename)
-            os.makedirs(os.path.dirname(upload_path), exist_ok=True)
-            with open(upload_path, "wb+") as dest:
-                for chunk in photo.chunks():
-                    dest.write(chunk)
-            instance.photo_url = filename
+            instance.photo_url = save_upload(photo, "bikes")
         instance.save()
         return instance
 

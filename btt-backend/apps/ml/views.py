@@ -14,6 +14,36 @@ from apps.users.permissions import IsAuthority, IsAuthorityOrAdmin, IsAdminUser
 logger = logging.getLogger(__name__)
 
 
+def _cached_analysis_response(analysis_type, stale_message, city=None, scoped=True):
+    """
+    Serve a cached ML analysis.
+
+    Every analysis endpoint answers the same two ways: 200 with the cached
+    payload, or 202 with a "not computed yet" notice telling the caller how to
+    force a recompute.  `scoped` controls whether the response echoes the city
+    back — the national-only analyses have no scope to report.
+    """
+    from .models import MLAnalysisCache
+    cache = MLAnalysisCache.get_fresh(analysis_type, city=city)
+
+    if not cache:
+        return Response(
+            {"message": stale_message, "data": None},
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+    payload = {
+        "analysis_type": analysis_type,
+        "computed_at": cache.computed_at,
+        "expires_at": cache.expires_at,
+        "record_count": cache.record_count,
+        "data": cache.result_data,
+    }
+    if scoped:
+        payload["scope_city"] = city
+    return Response(payload)
+
+
 # ─── Fuzzy Match ──────────────────────────────────────────────────────────────
 
 @api_view(["GET"])
@@ -66,32 +96,14 @@ def hotspot_clusters(request):
     Returns cached DBSCAN cluster data: centroid lat/lng, report count, radius.
     If cache is stale or absent, returns a 202 with a recompute notice.
     """
-    city = request.query_params.get("city", None)
-
     from .models import MLAnalysisCache
-    cache = MLAnalysisCache.get_fresh(MLAnalysisCache.AnalysisType.HOTSPOT_CLUSTERS, city=city)
-
-    if not cache:
-        return Response(
-            {
-                "message": (
-                    "Hotspot analysis cache is stale or not yet computed. "
-                    "Results will be available after the next scheduled cron job (daily 2 AM). "
-                    "Admin can trigger recompute at POST /api/ml/trigger-reanalysis/."
-                ),
-                "data": None,
-            },
-            status=status.HTTP_202_ACCEPTED,
-        )
-
-    return Response({
-        "analysis_type": "hotspot_clusters",
-        "scope_city": city,
-        "computed_at": cache.computed_at,
-        "expires_at": cache.expires_at,
-        "record_count": cache.record_count,
-        "data": cache.result_data,
-    })
+    return _cached_analysis_response(
+        MLAnalysisCache.AnalysisType.HOTSPOT_CLUSTERS,
+        "Hotspot analysis cache is stale or not yet computed. "
+        "Results will be available after the next scheduled cron job (daily 2 AM). "
+        "Admin can trigger recompute at POST /api/ml/trigger-reanalysis/.",
+        city=request.query_params.get("city", None),
+    )
 
 
 # ─── Trend Analytics ──────────────────────────────────────────────────────────
@@ -104,28 +116,13 @@ def trend_analytics(request):
     Returns cached monthly theft/recovery counts and recovery rates per city.
     """
     from .models import MLAnalysisCache
-    cache = MLAnalysisCache.get_fresh(MLAnalysisCache.AnalysisType.TREND_ANALYTICS)
-
-    if not cache:
-        return Response(
-            {
-                "message": (
-                    "Trend analytics cache is stale or not yet computed. "
-                    "Runs every Sunday at 3 AM. "
-                    "Admin can trigger recompute at POST /api/ml/trigger-reanalysis/."
-                ),
-                "data": None,
-            },
-            status=status.HTTP_202_ACCEPTED,
-        )
-
-    return Response({
-        "analysis_type": "trend_analytics",
-        "computed_at": cache.computed_at,
-        "expires_at": cache.expires_at,
-        "record_count": cache.record_count,
-        "data": cache.result_data,
-    })
+    return _cached_analysis_response(
+        MLAnalysisCache.AnalysisType.TREND_ANALYTICS,
+        "Trend analytics cache is stale or not yet computed. "
+        "Runs every Sunday at 3 AM. "
+        "Admin can trigger recompute at POST /api/ml/trigger-reanalysis/.",
+        scoped=False,  # national only — no city to echo back
+    )
 
 
 # ─── Recovery Zone Analysis ───────────────────────────────────────────────────
@@ -180,32 +177,14 @@ def recovery_radius(request):
       { mean_km, median_km, min_km, max_km, std_km, record_count, scope_city }
     Response (202): cache stale — recompute pending.
     """
-    city = request.query_params.get("city", None)
-
     from .models import MLAnalysisCache
-    cache = MLAnalysisCache.get_fresh(MLAnalysisCache.AnalysisType.RECOVERY_RADIUS, city=city)
-
-    if not cache:
-        return Response(
-            {
-                "message": (
-                    "Recovery radius cache is stale or not yet computed. "
-                    "Results will be available after the next scheduled run. "
-                    "Admin can trigger recompute at POST /api/ml/trigger-reanalysis/."
-                ),
-                "data": None,
-            },
-            status=status.HTTP_202_ACCEPTED,
-        )
-
-    return Response({
-        "analysis_type": "recovery_radius",
-        "scope_city": city,
-        "computed_at": cache.computed_at,
-        "expires_at": cache.expires_at,
-        "record_count": cache.record_count,
-        "data": cache.result_data,
-    })
+    return _cached_analysis_response(
+        MLAnalysisCache.AnalysisType.RECOVERY_RADIUS,
+        "Recovery radius cache is stale or not yet computed. "
+        "Results will be available after the next scheduled run. "
+        "Admin can trigger recompute at POST /api/ml/trigger-reanalysis/.",
+        city=request.query_params.get("city", None),
+    )
 
 
 # ─── Corridor Analysis ────────────────────────────────────────────────────────
@@ -225,31 +204,13 @@ def corridor_analysis(request):
     Response (200): fresh cache data.
     Response (202): cache stale.
     """
-    city = request.query_params.get("city", None)
-
     from .models import MLAnalysisCache
-    cache = MLAnalysisCache.get_fresh(MLAnalysisCache.AnalysisType.CORRIDOR_ANALYSIS, city=city)
-
-    if not cache:
-        return Response(
-            {
-                "message": (
-                    "Corridor analysis cache is stale or not yet computed. "
-                    "Admin can trigger recompute at POST /api/ml/trigger-reanalysis/."
-                ),
-                "data": None,
-            },
-            status=status.HTTP_202_ACCEPTED,
-        )
-
-    return Response({
-        "analysis_type": "corridor_analysis",
-        "scope_city": city,
-        "computed_at": cache.computed_at,
-        "expires_at": cache.expires_at,
-        "record_count": cache.record_count,
-        "data": cache.result_data,
-    })
+    return _cached_analysis_response(
+        MLAnalysisCache.AnalysisType.CORRIDOR_ANALYSIS,
+        "Corridor analysis cache is stale or not yet computed. "
+        "Admin can trigger recompute at POST /api/ml/trigger-reanalysis/.",
+        city=request.query_params.get("city", None),
+    )
 
 
 # ─── Manual Reanalysis Trigger ────────────────────────────────────────────────
@@ -262,50 +223,27 @@ def trigger_reanalysis(request):
     Admin triggers hotspot + trend + corridor + radius recompute outside the cron schedule.
     Runs synchronously so the frontend can refetch immediately after the 200 returns.
     """
-    from .analysis import (
-        run_hotspot_analysis, save_hotspot_cache,
-        run_trend_analytics, save_trend_cache,
-        run_corridor_analysis, save_corridor_cache,
-        run_recovery_radius, save_recovery_radius_cache,
+    # Imported as a module, not by name, so that tests patching
+    # apps.ml.analysis.* are seen by the lookups below.
+    from . import analysis
+
+    jobs = (
+        ("hotspot",   "run_hotspot_analysis",  "save_hotspot_cache"),
+        ("trends",    "run_trend_analytics",   "save_trend_cache"),
+        ("corridors", "run_corridor_analysis", "save_corridor_cache"),
+        ("radius",    "run_recovery_radius",   "save_recovery_radius_cache"),
     )
 
     job_results = {}
-
-    try:
-        hotspot_result = run_hotspot_analysis()
-        save_hotspot_cache(hotspot_result)
-        job_results["hotspot"] = "ok"
-        logger.info("Manual reanalysis: hotspot complete")
-    except Exception as exc:
-        logger.error("Manual reanalysis: hotspot failed: %s", exc)
-        job_results["hotspot"] = f"error: {exc}"
-
-    try:
-        trend_result = run_trend_analytics()
-        save_trend_cache(trend_result)
-        job_results["trends"] = "ok"
-        logger.info("Manual reanalysis: trends complete")
-    except Exception as exc:
-        logger.error("Manual reanalysis: trends failed: %s", exc)
-        job_results["trends"] = f"error: {exc}"
-
-    try:
-        corridor_result = run_corridor_analysis()
-        save_corridor_cache(corridor_result)
-        job_results["corridors"] = "ok"
-        logger.info("Manual reanalysis: corridors complete")
-    except Exception as exc:
-        logger.error("Manual reanalysis: corridors failed: %s", exc)
-        job_results["corridors"] = f"error: {exc}"
-
-    try:
-        radius_result = run_recovery_radius()
-        save_recovery_radius_cache(radius_result)
-        job_results["radius"] = "ok"
-        logger.info("Manual reanalysis: recovery radius complete")
-    except Exception as exc:
-        logger.error("Manual reanalysis: recovery radius failed: %s", exc)
-        job_results["radius"] = f"error: {exc}"
+    for name, run_attr, save_attr in jobs:
+        try:
+            result = getattr(analysis, run_attr)()
+            getattr(analysis, save_attr)(result)
+            job_results[name] = "ok"
+            logger.info("Manual reanalysis: %s complete", name)
+        except Exception as exc:
+            logger.error("Manual reanalysis: %s failed: %s", name, exc)
+            job_results[name] = f"error: {exc}"
 
     return Response({
         "message": "Reanalysis complete. Dashboard data is ready.",

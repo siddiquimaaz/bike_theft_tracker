@@ -22,6 +22,46 @@ class TheftReport(models.Model):
         RECOVERED = "recovered", "Recovered"
         CLOSED = "closed", "Closed"
 
+    # A case counts as ACTIVE from the moment it is filed until the bike is
+    # back with its owner.  Bike.is_stolen, Bike.active_theft_report, the
+    # stolen-bike list, the public city counter and the fuzzy matcher all key
+    # off this same set — a bike that drops out of one but not the others goes
+    # silently unmatched, so the set lives here and nowhere else.
+    ACTIVE_STATUSES = [
+        Status.STOLEN,
+        Status.UNDER_INVESTIGATION,
+        Status.NEW_CASE,
+        Status.UNDER_REVIEW,
+        Status.ACTIVE_INVESTIGATION,
+        Status.BIKE_LOCATED,
+        Status.PENDING_VERIFICATION,
+    ]
+
+    # What the community feed may show: active cases plus recovered ones, so
+    # contributors see their reports through to a positive outcome.  Closed
+    # cases drop off the feed.
+    COMMUNITY_VISIBLE_STATUSES = ACTIVE_STATUSES + [Status.RECOVERED]
+
+    # State-machine physics, enforced by transition_status().  This is
+    # deliberately role-agnostic: it says which moves exist at all, not who may
+    # make them.  Role limits live in the view layer
+    # (see AUTHORITY_ALLOWED_TRANSITIONS in apps/reports/views.py).
+    VALID_TRANSITIONS = {
+        Status.STOLEN: [Status.UNDER_INVESTIGATION, Status.CLOSED],
+        Status.UNDER_INVESTIGATION: [Status.RECOVERED, Status.CLOSED],
+        Status.NEW_CASE: [
+            Status.UNDER_REVIEW,
+            Status.UNDER_INVESTIGATION,  # Legacy client compatibility
+            Status.CLOSED,
+        ],
+        Status.UNDER_REVIEW: [Status.ACTIVE_INVESTIGATION, Status.CLOSED],
+        Status.ACTIVE_INVESTIGATION: [Status.BIKE_LOCATED, Status.CLOSED],
+        Status.BIKE_LOCATED: [Status.PENDING_VERIFICATION, Status.CLOSED],
+        Status.PENDING_VERIFICATION: [Status.RECOVERED, Status.CLOSED],
+        Status.RECOVERED: [Status.CLOSED],
+        Status.CLOSED: [],
+    }
+
     # Core references
     bike = models.ForeignKey(
         "bikes.Bike",
@@ -103,25 +143,11 @@ class TheftReport(models.Model):
         new_case -> under_review -> active_investigation -> bike_located
         -> pending_verification -> recovered -> closed
         """
-        valid_transitions = {
-            self.Status.STOLEN: [self.Status.UNDER_INVESTIGATION, self.Status.CLOSED],
-            self.Status.UNDER_INVESTIGATION: [self.Status.RECOVERED, self.Status.CLOSED],
-            self.Status.NEW_CASE: [
-                self.Status.UNDER_REVIEW,
-                self.Status.UNDER_INVESTIGATION,  # Legacy client compatibility
-                self.Status.CLOSED,
-            ],
-            self.Status.UNDER_REVIEW: [self.Status.ACTIVE_INVESTIGATION, self.Status.CLOSED],
-            self.Status.ACTIVE_INVESTIGATION: [self.Status.BIKE_LOCATED, self.Status.CLOSED],
-            self.Status.BIKE_LOCATED: [self.Status.PENDING_VERIFICATION, self.Status.CLOSED],
-            self.Status.PENDING_VERIFICATION: [self.Status.RECOVERED, self.Status.CLOSED],
-            self.Status.RECOVERED: [self.Status.CLOSED],
-            self.Status.CLOSED: [],
-        }
-        if new_status not in valid_transitions.get(self.status, []):
+        allowed = self.VALID_TRANSITIONS.get(self.status, [])
+        if new_status not in allowed:
             raise ValueError(
                 f"Cannot transition from '{self.status}' to '{new_status}'. "
-                f"Valid next states: {valid_transitions.get(self.status, [])}"
+                f"Valid next states: {allowed}"
             )
         old_status = self.status
         self.status = new_status

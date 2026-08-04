@@ -2,7 +2,6 @@
 apps/users/views/admin_views.py
 Admin-only endpoints: user management, analytics overview, audit log.
 """
-import logging
 from django.contrib.auth import get_user_model
 from django.db.models import Count, Q
 from django.utils import timezone
@@ -10,6 +9,7 @@ from rest_framework import generics, status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 
+from apps.common.background import background_task, run_in_background
 from apps.users.models import AuditLog
 from apps.users.permissions import IsAdminUser
 from apps.users.serializers import (
@@ -19,7 +19,6 @@ from apps.users.serializers import (
 )
 
 User = get_user_model()
-logger = logging.getLogger(__name__)
 
 
 class UserListView(generics.ListAPIView):
@@ -48,21 +47,14 @@ class CreateAuthorityView(generics.CreateAPIView):
     permission_classes = [IsAdminUser]
 
     def perform_create(self, serializer):
-        import threading
         user = serializer.save()
-        threading.Thread(
-            target=self._send_credentials_email,
-            args=(user,),
-            daemon=True,
-        ).start()
+        run_in_background(self._send_credentials_email, user)
 
     @staticmethod
+    @background_task("Failed to send authority credentials email: %s")
     def _send_credentials_email(user):
         from apps.notifications.email_service import send_authority_credentials_email
-        try:
-            send_authority_credentials_email(user)
-        except Exception as exc:
-            logger.error("Failed to send credentials email to %s: %s", user.email, exc)
+        send_authority_credentials_email(user)
 
 
 class UserStatusUpdateView(generics.UpdateAPIView):
@@ -135,7 +127,6 @@ def analytics_overview(request):
     )
 
     from apps.ml.models import MLAnalysisCache
-    from django.utils import timezone
     ml_cache = MLAnalysisCache.objects.filter(
         expires_at__gt=timezone.now()
     ).values("analysis_type", "computed_at", "record_count")
