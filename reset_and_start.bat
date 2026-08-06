@@ -8,8 +8,15 @@ set PGDATA=C:\Users\Maaz\localdev\postgresql-15\data
 set FRONTEND_DIR=%ROOT%btt-frontend
 set BACKEND_DIR=%ROOT%btt-backend
 
+:: BTT uses 8001/3001. Ports 8000 and 3000 belong to MuseAI on this machine —
+:: never kill or bind them here.
+set BACKEND_PORT=8001
+set FRONTEND_PORT=3001
+
 echo ============================================================
 echo   Bike Theft Tracker - Full Reset and Start
+echo   Backend %BACKEND_PORT%  Frontend %FRONTEND_PORT%  PostgreSQL 5433
+echo   (MuseAI on 8000/3000 is left untouched)
 echo ============================================================
 echo.
 
@@ -25,9 +32,9 @@ if not exist "%PGCTL%" (
   exit /b 1
 )
 
-echo [1/9] Stopping Django/Frontend listeners on ports 8000 and 3000...
-for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":8000 " 2^>nul') do taskkill /PID %%a /F >nul 2>&1
-for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":3000 " 2^>nul') do taskkill /PID %%a /F >nul 2>&1
+echo [1/9] Stopping Django/Frontend listeners on ports %BACKEND_PORT% and %FRONTEND_PORT%...
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":%BACKEND_PORT% " 2^>nul') do taskkill /PID %%a /F >nul 2>&1
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":%FRONTEND_PORT% " 2^>nul') do taskkill /PID %%a /F >nul 2>&1
 
 echo [2/9] Stopping PostgreSQL (if running)...
 "%PGCTL%" -D "%PGDATA%" stop >nul 2>&1
@@ -90,16 +97,16 @@ if /I "%SEED_DEMO%"=="y" (
 )
 
 echo [8/9] Starting backend server...
-start "BTT Backend" cmd /k "cd /d "%BACKEND_DIR%" && "%PYTHON_EXE%" manage.py runserver 0.0.0.0:8000"
+start "BTT Backend" cmd /k "cd /d "%BACKEND_DIR%" && "%PYTHON_EXE%" manage.py runserver 0.0.0.0:%BACKEND_PORT%"
 
 echo [9/9] Starting frontend server...
-start "BTT Frontend" cmd /k "cd /d "%FRONTEND_DIR%" && npm run dev"
+start "BTT Frontend" cmd /k "cd /d "%FRONTEND_DIR%" && npm run dev -- --port %FRONTEND_PORT% --strictPort"
 
 echo.
 echo ============================================================
 echo   Done. Fresh environment is up.
-echo   Frontend: http://localhost:3000/
-echo   Backend : http://localhost:8000/api/
+echo   Frontend: http://localhost:%FRONTEND_PORT%/
+echo   Backend : http://localhost:%BACKEND_PORT%/api/
 echo ============================================================
 echo.
 pause

@@ -303,7 +303,8 @@ if not DEBUG:
     SESSION_COOKIE_SAMESITE = "Strict"
 
 # ─── Frontend ─────────────────────────────────────────────────────────────────
-FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
+# BTT dev runs on 3001/8001 — ports 3000/8000 are taken by MuseAI locally.
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3001")
 
 # ─── ML Configuration ─────────────────────────────────────────────────────────
 ML_DBSCAN_EPS = 0.009           # ~1km at Pakistan latitude (degrees)

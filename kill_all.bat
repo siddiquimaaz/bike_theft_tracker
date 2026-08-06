@@ -3,18 +3,23 @@ SET ROOT=%~dp0
 SET PGCTL=C:\Users\Maaz\localdev\postgresql-15\pgsql\bin\pg_ctl.exe
 SET PGDATA=C:\Users\Maaz\localdev\postgresql-15\data
 
+:: BTT uses 8001/3001. Ports 8000 and 3000 belong to MuseAI on this machine.
+SET BACKEND_PORT=8001
+SET FRONTEND_PORT=3001
+
 echo ============================================================
-echo   Bike Theft Tracker — Kill All Ports, Processes ^& Venvs
+echo   Bike Theft Tracker — Kill BTT Ports, Processes ^& Venvs
 echo ============================================================
 echo.
-echo   Ports targeted:  8000 (Django)  3000 (React)
-echo                    5433 (Project PG)  5432 (System PG) 
-echo   NOT touched:     135, 445, 8733, 49664-49670 (Windows system)
+echo   Ports targeted:  %BACKEND_PORT% (Django)  %FRONTEND_PORT% (React)
+echo                    5433 (Project PG)
+echo   NOT touched:     8000/3000 (MuseAI), 5432 (system PG),
+echo                    135, 445, 8733, 49664-49670 (Windows system)
 echo ============================================================
 echo.
 
 :: ── STEP 1: Deactivate virtual environment (this shell) ───────────────────────
-echo [1/7] Deactivating virtual environment...
+echo [1/5] Deactivating virtual environment...
 
 if defined VIRTUAL_ENV (
     echo        Active venv detected: %VIRTUAL_ENV%
@@ -38,7 +43,7 @@ echo        NOTE: Other open terminals need 'deactivate' or close them manually.
 
 :: ── STEP 2: Stop project PostgreSQL cleanly (port 5433) ───────────────────────
 echo.
-echo [2/7] Stopping project PostgreSQL on port 5433 (clean shutdown)...
+echo [2/5] Stopping project PostgreSQL on port 5433 (clean shutdown)...
 "%PGCTL%" -D "%PGDATA%" stop >nul 2>&1
 if %ERRORLEVEL% EQU 0 (
     echo        Project PostgreSQL (port 5433) stopped cleanly.
@@ -46,35 +51,39 @@ if %ERRORLEVEL% EQU 0 (
     echo        Project PostgreSQL was not running (or already stopped).
 )
 
-:: ── STEP 3: Kill port 8000 (Django) ───────────────────────────────────────────
+:: ── STEP 3: Kill BTT backend port ─────────────────────────────────────────────
 echo.
-echo [3/7] Killing port 8000 (Django backend)...
+echo [3/5] Killing port %BACKEND_PORT% (Django backend)...
 set KILLED=0
-for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":8000 " 2^>nul') do (
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":%BACKEND_PORT% " 2^>nul') do (
     taskkill /PID %%a /F >nul 2>&1
     if not errorlevel 1 (
-        echo        Killed PID %%a on port 8000.
+        echo        Killed PID %%a on port %BACKEND_PORT%.
         set KILLED=1
     )
 )
-if "%KILLED%"=="0" echo        Nothing was running on port 8000.
+if "%KILLED%"=="0" echo        Nothing was running on port %BACKEND_PORT%.
 
-:: ── STEP 4: Kill port 3000 (React / Vite) ─────────────────────────────────────
+:: ── STEP 4: Kill BTT frontend port ────────────────────────────────────────────
 echo.
-echo [4/7] Killing port 3000 (React frontend)...
+echo [4/5] Killing port %FRONTEND_PORT% (React frontend)...
 set KILLED=0
-for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":3000 " 2^>nul') do (
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":%FRONTEND_PORT% " 2^>nul') do (
     taskkill /PID %%a /F >nul 2>&1
     if not errorlevel 1 (
-        echo        Killed PID %%a on port 3000.
+        echo        Killed PID %%a on port %FRONTEND_PORT%.
         set KILLED=1
     )
 )
-if "%KILLED%"=="0" echo        Nothing was running on port 3000.
+if "%KILLED%"=="0" echo        Nothing was running on port %FRONTEND_PORT%.
 
-:: ── STEP 5: Kill port 5433 (project PostgreSQL — in case pg_ctl stop missed it)
+:: ── STEP 5: Kill port 5433 (project PostgreSQL — pg_ctl stop safety net) ──────
+:: NOTE: this script used to end with `taskkill /IM python.exe`, `/IM node.exe`
+:: and `/IM postgres.exe`, which killed every such process on the machine —
+:: including MuseAI and the system PostgreSQL on 5432. Only BTT's own ports are
+:: cleared now; nothing is killed by image name.
 echo.
-echo [5/7] Killing port 5433 (project PostgreSQL — safety net)...
+echo [5/5] Killing port 5433 (project PostgreSQL — safety net)...
 set KILLED=0
 for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":5433 " 2^>nul') do (
     taskkill /PID %%a /F >nul 2>&1
@@ -85,62 +94,17 @@ for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":5433 " 2^>nul') do (
 )
 if "%KILLED%"=="0" echo        Nothing was running on port 5433.
 
-:: ── STEP 6: Kill port 5432 (system/other PostgreSQL instance) ─────────────────
-echo.
-echo [6/7] Checking port 5432 (system PostgreSQL)...
-set KILLED=0
-for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":5432 " 2^>nul') do (
-    echo        Found PID %%a on port 5432 (separate PG install).
-    taskkill /PID %%a /F >nul 2>&1
-    if not errorlevel 1 (
-        echo        Killed PID %%a on port 5432.
-        set KILLED=1
-    )
-)
-if "%KILLED%"=="0" echo        Nothing was running on port 5432.
-
-:: ── STEP 7: Kill remaining Python, Node and Postgres processes ─────────────────
-echo.
-echo [7/7] Killing leftover python.exe, node.exe, postgres.exe...
-
-taskkill /IM python.exe /F >nul 2>&1
-if %ERRORLEVEL% EQU 0 (
-    echo        python.exe terminated.
-) else (
-    echo        No python.exe processes found.
-)
-
-taskkill /IM pythonw.exe /F >nul 2>&1
-if %ERRORLEVEL% EQU 0 (
-    echo        pythonw.exe terminated.
-)
-
-taskkill /IM node.exe /F >nul 2>&1
-if %ERRORLEVEL% EQU 0 (
-    echo        node.exe terminated.
-) else (
-    echo        No node.exe processes found.
-)
-
-taskkill /IM postgres.exe /F >nul 2>&1
-if %ERRORLEVEL% EQU 0 (
-    echo        postgres.exe terminated.
-) else (
-    echo        No postgres.exe processes found.
-)
-
 :: ── Done ──────────────────────────────────────────────────────────────────────
 echo.
 echo ============================================================
-echo   Done. Everything is stopped and cleared:
+echo   Done. BTT is stopped and cleared:
 echo     [x] Virtual environment deactivated
 echo     [x] PostgreSQL (port 5433) stopped
-echo     [x] PostgreSQL (port 5432) stopped
-echo     [x] Port 8000 (Django) cleared
-echo     [x] Port 3000 (React)  cleared
-echo     [x] python.exe / node.exe killed
+echo     [x] Port %BACKEND_PORT% (Django) cleared
+echo     [x] Port %FRONTEND_PORT% (React)  cleared
 echo.
-echo   System ports (135, 445, 8733, 49664+) were NOT touched.
+echo   Left running on purpose: MuseAI (8000/3000), system PG (5432),
+echo   and Windows system ports (135, 445, 8733, 49664+).
 echo.
 echo   Run start.bat to bring everything back up fresh.
 echo ============================================================

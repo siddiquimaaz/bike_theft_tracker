@@ -10,8 +10,13 @@ const venvPython =
   path.join(repoRoot, 'venv', isWin ? 'Scripts/python.exe' : 'bin/python');
 
 const djangoCwd = path.join(repoRoot, 'btt-backend');
-const djangoReadyUrl = 'http://localhost:8000/admin/login/';
-const viteReadyUrl = 'http://localhost:3000/';
+
+// BTT runs on 3001/8001 — ports 3000/8000 belong to MuseAI on this machine.
+const DJANGO_PORT = process.env.BTT_DJANGO_PORT ?? '8001';
+const VITE_PORT = process.env.BTT_VITE_PORT ?? '3001';
+
+const djangoReadyUrl = `http://localhost:${DJANGO_PORT}/admin/login/`;
+const viteReadyUrl = `http://localhost:${VITE_PORT}/`;
 
 export default defineConfig({
   globalSetup: path.join(__dirname, 'playwright.global-setup.js'),
@@ -27,7 +32,7 @@ export default defineConfig({
   reporter: [['list'], ['html', { open: 'never' }]],
 
   use: {
-    baseURL: 'http://localhost:3000',
+    baseURL: viteReadyUrl,
     storageState: undefined,
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
@@ -44,7 +49,7 @@ export default defineConfig({
   webServer: [
     {
       name: 'django-api',
-      command: `"${venvPython}" manage.py runserver localhost:8000`,
+      command: `"${venvPython}" manage.py runserver localhost:${DJANGO_PORT}`,
       cwd: djangoCwd,
       url: djangoReadyUrl,
       reuseExistingServer: !process.env.CI,
@@ -54,7 +59,7 @@ export default defineConfig({
     },
     {
       name: 'vite-frontend',
-      command: 'npm run dev -- --host localhost --port 3000',
+      command: `npm run dev -- --host localhost --port ${VITE_PORT}`,
       cwd: __dirname,
       url: viteReadyUrl,
       reuseExistingServer: !process.env.CI,
