@@ -564,9 +564,15 @@ try {
     # cluster -> PostGIS, plus the GDAL/GEOS DLLs GeoDjango ctypes-loads out of
     # the rasterio wheel. If this answers, the parts that usually break on a
     # fresh Windows machine are all working together.
-    $probe = @'
-import django, os
+    # sys.path gets the backend directory explicitly. Python puts the *script's*
+    # own directory on sys.path, not the working directory, and this script
+    # lives in TEMP - so without this line `config` is not importable no matter
+    # which folder the probe is launched from.
+    $probe = @"
+import os, sys
+sys.path.insert(0, r"$BackendDir")
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
+import django
 django.setup()
 from django.contrib.gis.geos import Point
 from django.db import connection
@@ -574,8 +580,8 @@ with connection.cursor() as c:
     c.execute("SELECT postgis_lib_version();")
     v = c.fetchone()[0]
 p = Point(67.0011, 24.8607, srid=4326)
-print("postgis", v, "geos-ok", p.wkt[:20])
-'@
+print("probe ok - postgis", v, "- geos", p.wkt[:18])
+"@
     $probeFile = Join-Path $CacheDir 'probe.py'
     Set-Content -Path $probeFile -Value $probe -Encoding ASCII
     if ((Invoke-Native $VenvPython @($probeFile)) -ne 0) {
