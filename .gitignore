@@ -17,11 +17,16 @@ build/
 .eggs/
 
 # Virtual environments
-venv/
+# `venv*/` also covers the stale interpreter copies (venv_old_py311/ etc.)
+venv*/
 env/
 .venv/
 # Ad-hoc / agent test virtualenvs (not the standard `.venv/` layout)
 .venv_*/
+
+# Node
+node_modules/
+.vite/
 
 # Django
 *.log
@@ -42,8 +47,9 @@ coverage.xml
 .pytest_cache/
 .cache/
 
-# Frontend test artifacts
+# Frontend build and test artifacts
 btt-frontend/test-results/
+playwright-report/
 
 # Optional generated DB schema dump (use migrations instead)
 btt-backend/schema.sql
