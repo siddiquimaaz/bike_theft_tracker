@@ -101,6 +101,55 @@ function Invoke-Winget($id, $label) {
 # --------------------------------------------------------------------------
 # downloads
 # --------------------------------------------------------------------------
+function Get-OfflineOrRemote {
+    <#
+        Return a path to `name`, preferring copies already on this machine over
+        the network. Looks, in order:
+
+          1. <repo>\vendor\<name>   - put there deliberately, e.g. carried in on
+                                      a USB stick for a machine with no internet
+          2. <temp cache>\<name>    - downloaded by an earlier run on this machine
+          3. the network            - $Url, then $FallbackUrl
+
+        The vendor folder is what makes a fully offline install possible: drop
+        the two archives in beside the repo and setup.ps1 never reaches for the
+        network. Nothing is copied out of vendor\, it is read in place, so a
+        read-only USB stick works.
+    #>
+    param(
+        [Parameter(Mandatory)] [string] $Name,
+        [Parameter(Mandatory)] [string] $Url,
+        [string] $FallbackUrl = '',
+        [Parameter(Mandatory)] [string] $VendorDir,
+        [Parameter(Mandatory)] [string] $CacheDir,
+        [Parameter(Mandatory)] [string] $Label
+    )
+
+    $vendored = Join-Path $VendorDir $Name
+    if (Test-Path $vendored) {
+        Write-Ok "Using the copy shipped in vendor\ ($Name) - no download needed"
+        return $vendored
+    }
+
+    $cached = Join-Path $CacheDir $Name
+    if (Test-Path $cached) {
+        Write-Info "Reusing the archive already downloaded to the temp folder ($Name)."
+        return $cached
+    }
+
+    try {
+        Get-RemoteFile $Url $cached $Label
+    } catch {
+        if (-not $FallbackUrl) { throw }
+        Write-Info "The published release moved - trying the archived build..."
+        # A partial file from the failed attempt would be mistaken for a good
+        # one on the next run.
+        Remove-Item -Force $cached -ErrorAction SilentlyContinue
+        Get-RemoteFile $FallbackUrl $cached "$Label (archived build)"
+    }
+    return $cached
+}
+
 function Get-RemoteFile($url, $destination, $label) {
     New-Item -ItemType Directory -Force -Path (Split-Path $destination) | Out-Null
     Write-Info "Downloading $label..."

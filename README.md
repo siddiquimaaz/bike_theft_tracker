@@ -37,6 +37,16 @@ pins every package including transitive ones to the exact versions this project
 was tested against. If a pinned wheel has no build for the target machine, the
 installer falls back to the unpinned `requirements.txt`.
 
+Everything lands inside this folder — `venv\`, `.localdb\`, `node_modules\`,
+about 1.8 GB in total. Nothing is written anywhere else on the machine.
+
+### Installing without internet
+
+`install.bat` downloads ~410 MB (PostgreSQL and PostGIS). To install on a machine
+with no internet, put those two archives in **`vendor\`** and it uses them instead
+of downloading. See [vendor/README.md](vendor/README.md) for the filenames and
+links. Python and Node still need internet if the machine has neither.
+
 ---
 
 ## Quick Start

@@ -55,6 +55,9 @@ $VenvPython  = Join-Path $VenvDir 'Scripts\python.exe'
 $EnvFile     = Join-Path $BackendDir '.env'
 $EnvExample  = Join-Path $BackendDir '.env.example'
 $CacheDir    = Join-Path $env:TEMP 'btt-setup'
+# Checked before the network. Drop the PostgreSQL and PostGIS archives here to
+# install on a machine with no internet - see vendor\README.md.
+$VendorDir   = Join-Path $RepoRoot 'vendor'
 
 # Pinned, and verified reachable at the time of writing. Both are plain zips
 # with no installer and no admin requirement.
@@ -255,12 +258,9 @@ if ($Force -and (Test-Path $pg.PgSql)) {
 if (Test-PgInstalled $pg) {
     Write-Ok 'PostgreSQL already unpacked (.localdb\pgsql)'
 } else {
-    $zip = Join-Path $CacheDir 'postgresql-15-binaries.zip'
-    if (-not (Test-Path $zip)) {
-        Get-RemoteFile $PgUrl $zip 'PostgreSQL 15 binaries (~290 MB, the slow step)'
-    } else {
-        Write-Info 'Reusing the archive already in the temp folder.'
-    }
+    $zip = Get-OfflineOrRemote -Name 'postgresql-15-binaries.zip' -Url $PgUrl `
+        -VendorDir $VendorDir -CacheDir $CacheDir `
+        -Label 'PostgreSQL 15 binaries (~290 MB, the slow step)'
     Write-Info 'Extracting PostgreSQL...'
     New-Item -ItemType Directory -Force -Path $pg.Root | Out-Null
     # The archive contains a single top-level pgsql\ folder, which lands as
@@ -276,17 +276,9 @@ $postgisControl = Join-Path $pg.PgSql 'share\extension\postgis.control'
 if ((Test-Path $postgisControl) -and (-not $Force)) {
     Write-Ok 'PostGIS already unpacked'
 } else {
-    $zip = Join-Path $CacheDir 'postgis-bundle.zip'
-    if (-not (Test-Path $zip)) {
-        try {
-            Get-RemoteFile $PostgisUrl $zip 'PostGIS bundle (~120 MB)'
-        } catch {
-            Write-Info 'The current PostGIS release moved - trying the archived build...'
-            Get-RemoteFile $PostgisFallbackUrl $zip 'PostGIS bundle, archived build (~120 MB)'
-        }
-    } else {
-        Write-Info 'Reusing the archive already in the temp folder.'
-    }
+    $zip = Get-OfflineOrRemote -Name 'postgis-bundle.zip' -Url $PostgisUrl `
+        -FallbackUrl $PostgisFallbackUrl -VendorDir $VendorDir -CacheDir $CacheDir `
+        -Label 'PostGIS bundle (~120 MB)'
 
     $extracted = Join-Path $CacheDir 'postgis-extracted'
     if (Test-Path $extracted) { Remove-Item -Recurse -Force $extracted }

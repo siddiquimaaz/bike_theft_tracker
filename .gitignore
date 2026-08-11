@@ -76,6 +76,11 @@ pgsql/
 # generated passwords. Deleting this folder removes the local database.
 .localdb/
 
+# Offline install archives — large, and fetched from official sources.
+# vendor/README.md says which files go here and stays tracked.
+vendor/*
+!vendor/README.md
+
 # Claude Code memory
 .claude/
 
