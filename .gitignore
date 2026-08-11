@@ -72,6 +72,9 @@ secrets/
 # Windows portable PostgreSQL (machine-specific, too large for git)
 postgresql-*/
 pgsql/
+# Portable database created by tools\setup.ps1 — binaries, cluster and the
+# generated passwords. Deleting this folder removes the local database.
+.localdb/
 
 # Claude Code memory
 .claude/

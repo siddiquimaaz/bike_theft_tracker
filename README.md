@@ -7,36 +7,66 @@ Built with Django 6.0 + DRF (backend) and React 19 + Vite (frontend), backed by 
 
 ---
 
-## First-time install (Windows)
+## Install (Windows)
 
-From the repo root, in order:
+**Double-click `install.bat`.** That is the whole thing.
 
-1. **`scripts\setup_env.bat`** — creates `btt-backend\.env` from `.env.example` if it does not exist (never overwrites). Then edit values for your machine.
-2. **`scripts\install_all.bat`** — checks Python 3.12+ and Node/npm, creates **`venv`** at the repo root, installs `btt-backend\requirements.txt`, runs **`npm ci`** in `btt-frontend` when `package-lock.json` is present (otherwise `npm install`).
-3. **PostgreSQL 15** — install the database server, then add **PostGIS** (GeoDjango will not migrate without it). **Windows (automated):** from an elevated PowerShell, run **`scripts\install_postgis_pg15.ps1`** (downloads the official bundle, silent-installs, enables `postgis` on `template1` and `bikethefttracker` if that DB exists). **Or manual:** **Stack Builder** (from the PostgreSQL install or Start menu) → your instance → spatial extensions → **PostGIS**. Confirm `postgis.control` exists under `C:\Program Files\PostgreSQL\15\share\extension\` (path varies by version).
-4. **GDAL / env tuning** — see **[docs/README_NEWMACHINE.md](docs/README_NEWMACHINE.md)**. Set **`DB_PORT`** in `btt-backend\.env` to the port your cluster actually listens on (often **5432**).
-5. With `venv` activated: **`cd btt-backend`** then **`python manage.py migrate`** and **`python manage.py create_demo_users`** (Playwright also runs these before **`npm run test:e2e`**). For **`pytest`**, the DB user must be allowed to create the test database: as `postgres` run **`ALTER ROLE bttadmin CREATEDB;`** (use your `DB_USER` value if different).
-6. **End-to-end tests** — from **`btt-frontend`**: **`npm run test:e2e`** starts Django + Vite, migrates, seeds demo users, then runs Playwright (requires steps 1–4 complete). Set **`BTT_PYTHON`** if your interpreter is not **`..\venv\Scripts\python.exe`**.
+It installs Python 3.12+ and Node 18+ via winget if they are missing, builds the
+`venv`, downloads a portable PostgreSQL 15 + PostGIS into `.localdb\`, creates
+the database and role, writes `btt-backend\.env`, applies migrations, seeds the
+demo data, and installs the frontend packages. It then proves the install by
+running a real PostGIS query through Django.
 
-PowerShell equivalents: `scripts\setup_env.ps1`, `scripts\install_all.ps1`.
+Nothing needs administrator rights and nothing is installed system-wide except
+Python and Node themselves. The database is a self-contained copy inside the
+repo — **deleting `.localdb\` removes it completely**, leaving no trace on the
+machine.
+
+Re-running is safe: every step detects what is already present and skips it, so
+after a failure you only redo the part that failed.
+
+| Switch | Effect |
+|--------|--------|
+| `install.bat -RebuildVenv` | Rebuild the virtualenv from scratch |
+| `install.bat -ResetDb` | Delete and recreate the database cluster |
+| `install.bat -NoSeed` | Skip the demo users and demo data |
+| `install.bat -Force` | Re-download PostgreSQL and PostGIS |
+
+Python dependencies install from **`btt-backend\requirements.lock.txt`**, which
+pins every package including transitive ones to the exact versions this project
+was tested against. If a pinned wheel has no build for the target machine, the
+installer falls back to the unpinned `requirements.txt`.
 
 ---
 
 ## Quick Start
 
+**Double-click `run.bat`.** It starts the database, opens a window each for the
+backend and frontend, and opens the app in your browser. On a fresh clone it
+runs the installer first, so `run.bat` alone is enough.
+
 ```bat
-:: Daily start (keeps existing data)
-start.bat
+:: Start (keeps existing data)
+run.bat
 
 :: Full reset + fresh seed (for demos / evaluations)
 reset_and_start.bat
+
+:: Stop everything, database included
+kill_all.bat
+
+:: Backend tests
+run_tests.bat
 ```
 
 | Service | URL |
 |---------|-----|
-| Frontend | http://localhost:3000 |
-| Backend API | http://localhost:8000/api/ |
-| Admin panel | http://localhost:8000/admin/ |
+| Frontend | http://localhost:3001 |
+| Backend API | http://localhost:8001/api/ |
+| Admin panel | http://localhost:8001/admin/ |
+
+Ports are probed at launch — if 3001 or 8001 is busy, the next free one is used
+and both sides are told where the other landed.
 
 **Demo logins after seeding:**
 
@@ -69,12 +99,18 @@ bike_theft_tracker/
 ├── btt-backend/          # Django API (apps/, tests/, config/)
 ├── btt-frontend/         # React app (src/)
 ├── docs/                 # All documentation
-├── scripts/              # Utility scripts
-├── start.bat             # Daily start
+├── tools/                # setup / run / stop / test PowerShell scripts
+├── scripts/              # Older utility scripts, superseded by tools/
+├── .localdb/             # Portable PostgreSQL + PostGIS (git-ignored)
+├── install.bat           # One-click install
+├── run.bat               # One-click start
 ├── reset_and_start.bat   # Full reset + start
 ├── kill_all.bat          # Stop everything
-└── run_tests.bat         # Run backend + E2E tests
+└── run_tests.bat         # Run backend tests (-E2E adds Playwright)
 ```
+
+Every `.bat` at the root is a thin wrapper that derives its paths from the repo
+location, so the project runs from any folder on any machine.
 
 ---
 
@@ -110,17 +146,25 @@ bike_theft_tracker/
   - Trend analytics — monthly theft/recovery rates per city
   - Recovery zone analysis — PostGIS spatial query
 - **Audit log**: append-only, DB-level REVOKE prevents modification
-- **386 backend tests · ≥ 90 % coverage**
+- **376 backend tests · 92.8 % coverage**
 
 ---
 
 ## Running Tests
 
-```cmd
-:: Backend (pytest)
-cd btt-backend
-pytest
+`run_tests.bat` starts the database if it is not already up, then runs pytest.
 
-:: Or use the batch shortcut
+```cmd
+:: Backend suite with coverage
 run_tests.bat
+
+:: Faster, no coverage report
+run_tests.bat -NoCov
+
+:: One file or one pattern — extra arguments go straight to pytest
+run_tests.bat -k fuzzy
+run_tests.bat tests\test_reports.py -vv
+
+:: Backend suite, then the Playwright end-to-end suite
+run_tests.bat -E2E
 ```

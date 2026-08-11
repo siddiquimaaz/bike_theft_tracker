@@ -1,0 +1,73 @@
+# Bike Theft Tracker backend - FROZEN dependency set.
+#
+# Every package, including transitive ones, pinned to the exact version this
+# project was developed and tested against (376 tests, 92.84% coverage).
+# tools\setup.ps1 installs from this file first so a machine setting up months
+# from now gets the same dependency graph rather than whatever is latest.
+#
+# Fallback: if a pinned wheel has no build for the target machine's Python or
+# CPU, setup.ps1 retries with the unpinned requirements.txt. A slightly newer
+# resolvable set beats a failed install.
+#
+# Regenerate after changing requirements.txt:
+#     venv\Scripts\python.exe -m pip freeze --exclude-editable > btt-backend\requirements.lock.txt
+#
+# Generated on Python 3.14.6
+
+affine==2.4.0
+aiohappyeyeballs==2.7.1
+aiohttp==3.14.3
+aiohttp-retry==2.9.1
+aiosignal==1.4.0
+asgiref==3.12.1
+attrs==26.1.0
+certifi==2026.7.22
+charset-normalizer==3.4.9
+click==8.4.2
+cligj==0.7.2
+colorama==0.4.6
+coverage==7.15.3
+Django==6.0.8
+django-filter==26.1
+djangorestframework==3.17.1
+djangorestframework_simplejwt==5.5.1
+factory_boy==3.3.3
+Faker==40.36.0
+frozenlist==1.8.0
+gunicorn==26.0.0
+idna==3.18
+iniconfig==2.3.0
+joblib==1.5.3
+multidict==6.7.1
+narwhals==2.24.0
+numpy==2.5.1
+packaging==26.3
+pandas==3.0.5
+pillow==12.3.0
+pluggy==1.6.0
+propcache==0.5.2
+psycopg==3.3.4
+psycopg-binary==3.3.4
+Pygments==2.20.0
+PyJWT==2.13.0
+pyparsing==3.3.2
+pytest==9.1.1
+pytest-cov==7.1.0
+pytest-django==4.12.0
+python-dateutil==2.9.0.post0
+python-dotenv==1.2.2
+python-magic-bin==0.4.14
+RapidFuzz==3.14.5
+rasterio==1.5.0
+reportlab==5.0.0
+requests==2.34.2
+scikit-learn==1.9.0
+scipy==1.18.0
+shapely==2.1.2
+six==1.17.0
+sqlparse==0.5.5
+threadpoolctl==3.6.0
+twilio==9.10.9
+tzdata==2026.3
+urllib3==2.7.0
+yarl==1.24.5
