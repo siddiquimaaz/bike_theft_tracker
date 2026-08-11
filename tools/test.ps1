@@ -111,11 +111,7 @@ if ($E2E) {
     if (-not (Test-Path (Join-Path $FrontendDir 'node_modules'))) {
         Write-Warn 'Frontend packages are missing - run install.bat. Skipping the e2e suite.'
     } else {
-        $npm = $null
-        foreach ($name in @('npm.cmd', 'npm')) {
-            $cmd = Get-Command $name -ErrorAction SilentlyContinue
-            if ($cmd) { $npm = $cmd.Source; break }
-        }
+        $npm = Resolve-Npm -RepoRoot $RepoRoot
         if (-not $npm) {
             Write-Warn 'npm not found - skipping the e2e suite.'
         } else {

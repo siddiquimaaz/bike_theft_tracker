@@ -81,6 +81,9 @@ pgsql/
 vendor/*
 !vendor/README.md
 
+# Private Node.js unpacked by tools\setup.ps1 when the machine has none.
+.runtime/
+
 # Claude Code memory
 .claude/
 

@@ -67,6 +67,16 @@ $PostgisUrl = 'https://download.osgeo.org/postgis/windows/pg15/postgis-bundle-pg
 # over, the previous one stays reachable under archive/.
 $PostgisFallbackUrl = 'https://download.osgeo.org/postgis/windows/pg15/archive/postgis-bundle-pg15-3.5.3x64.zip'
 
+# Python and Node, from the vendors' own servers. Pinned so a machine setting up
+# months from now gets what this was tested against, and so vendor\ has exact
+# filenames to match.
+$PythonVersion       = '3.13.9'
+$PythonInstallerName = "python-$PythonVersion-amd64.exe"
+$PythonUrl           = "https://www.python.org/ftp/python/$PythonVersion/$PythonInstallerName"
+$NodeVersion         = 'v24.19.0'   # LTS
+$NodeZipName         = "node-$NodeVersion-win-x64.zip"
+$NodeUrl             = "https://nodejs.org/dist/$NodeVersion/$NodeZipName"
+
 $DbName = 'bikethefttracker'
 $DbUser = 'bttadmin'
 
@@ -112,20 +122,58 @@ function Resolve-Python {
 
 $python = Resolve-Python
 if (-not $python) {
-    Write-Info 'No Python 3.12 or newer found.'
-    if (-not (Invoke-Winget 'Python.Python.3.13' 'Python 3.13')) {
+    Write-Info 'No Python 3.12 or newer found - installing it.'
+
+    # The official installer, run directly, rather than winget. winget ships on
+    # current Windows 10/11 but is absent on older images and is disabled by
+    # policy on plenty of managed machines - and "install winget first" is
+    # exactly the manual step this script exists to remove. winget stays as the
+    # fallback for the case where the download itself is blocked.
+    $installed = $false
+    try {
+        $exe = Get-OfflineOrRemote -Name $PythonInstallerName -Url $PythonUrl `
+            -VendorDir $VendorDir -CacheDir $CacheDir -Label "Python $PythonVersion installer (~28 MB)"
+
+        # InstallAllUsers=0 keeps it per-user, so no UAC prompt and nothing
+        # outside this user's profile is touched. PrependPath puts python and
+        # the py launcher on PATH for future shells; this one re-reads PATH from
+        # the registry below, since its own copy is already stale.
+        Write-Info 'Installing Python (silent, per-user, no administrator rights)...'
+        $proc = Start-Process -FilePath $exe -Wait -PassThru -ArgumentList @(
+            '/quiet', 'InstallAllUsers=0', 'PrependPath=1', 'Include_launcher=1',
+            'Include_pip=1', 'Include_test=0', 'AssociateFiles=0', 'Shortcuts=0'
+        )
+        # 3010 is "success, reboot recommended" - the install itself is done.
+        if ($proc.ExitCode -eq 0 -or $proc.ExitCode -eq 3010) {
+            $installed = $true
+        } else {
+            Write-Info "The Python installer exited with code $($proc.ExitCode)."
+        }
+    } catch {
+        Write-Info "Could not download or run the Python installer ($($_.Exception.Message))."
+    }
+
+    Update-PathFromRegistry
+    $python = Resolve-Python
+
+    if (-not $python) {
+        Write-Info 'Falling back to winget for Python...'
+        if (Invoke-Winget 'Python.Python.3.13' 'Python 3.13') { $python = Resolve-Python }
+    }
+    if (-not $python) {
         Fail @"
 Python 3.12 or newer is required (Django 6.0 does not support older versions)
-and winget is not available to install it.
-  1. Download it from https://www.python.org/downloads/
+and it could not be installed automatically.
+
+Install it by hand, then re-run install.bat:
+  1. $PythonUrl
   2. During setup, tick "Add python.exe to PATH"
-  3. Re-run install.bat
+
+To install with no internet at all, put the installer in vendor\ first -
+see vendor\README.md.
 "@
     }
-    $python = Resolve-Python
-    if (-not $python) {
-        Fail 'Python was installed but still cannot be found. Close this window, open a new one, and re-run install.bat.'
-    }
+    if ($installed) { Write-Ok "Python $($python.Version) installed" }
 }
 Write-Ok "Python $($python.Version)  ($($python.Exe) $($python.Pre))"
 
@@ -134,40 +182,69 @@ Write-Ok "Python $($python.Version)  ($($python.Exe) $($python.Pre))"
 # --------------------------------------------------------------------------
 Write-Head '2/11  Node.js 18+'
 
-function Resolve-Npm {
-    foreach ($name in @('npm.cmd', 'npm')) {
-        $cmd = Get-Command $name -ErrorAction SilentlyContinue
-        if ($cmd) { return $cmd.Source }
+$npm = Resolve-Npm -RepoRoot $RepoRoot
+
+# Vite 8 needs a modern Node. An ancient one installed years ago for something
+# else is common, and it fails deep inside the build with an error that says
+# nothing about versions - so treat "too old" the same as "absent".
+$nodeMajor = 0
+if ($npm) {
+    try {
+        $v = & (Join-Path (Split-Path $npm -Parent) 'node.exe') --version 2>$null
+        if (-not $v) { $v = & node --version 2>$null }
+        if ("$v" -match '^v(\d+)\.') { $nodeMajor = [int]$Matches[1] }
+    } catch { }
+    if ($nodeMajor -gt 0 -and $nodeMajor -lt 18) {
+        Write-Info "Node $v is too old for this project's frontend (needs 18+) - installing a private copy."
+        $npm = $null
     }
-    foreach ($candidate in @(
-        (Join-Path $env:ProgramFiles 'nodejs\npm.cmd'),
-        (Join-Path ${env:ProgramFiles(x86)} 'nodejs\npm.cmd'),
-        (Join-Path $env:APPDATA 'npm\npm.cmd')
-    )) {
-        if ($candidate -and (Test-Path $candidate)) { return $candidate }
-    }
-    return $null
 }
 
-$npm = Resolve-Npm
 if (-not $npm) {
-    Write-Info 'Node.js not found.'
-    if (-not (Invoke-Winget 'OpenJS.NodeJS.LTS' 'Node.js LTS')) {
+    Write-Info 'Installing Node.js.'
+
+    # The portable zip, not the MSI. The MSI installs per-machine and prompts
+    # for UAC; this just unpacks into <repo>\.runtime\node, needs no admin, does
+    # not touch the machine's PATH or any Node already on it, and disappears
+    # with the repo folder. It is also the only option that works at all on a
+    # locked-down account.
+    $nodeDir = Get-PortableNodeDir $RepoRoot
+    try {
+        $zip = Get-OfflineOrRemote -Name $NodeZipName -Url $NodeUrl `
+            -VendorDir $VendorDir -CacheDir $CacheDir -Label "Node.js $NodeVersion (~36 MB)"
+        Write-Info 'Extracting Node.js...'
+        if (Test-Path $nodeDir) { Remove-Item -Recurse -Force $nodeDir }
+        New-Item -ItemType Directory -Force -Path $nodeDir | Out-Null
+        Expand-Archive -Path $zip -DestinationPath $nodeDir -Force
+        $npm = Resolve-Npm -RepoRoot $RepoRoot
+    } catch {
+        Write-Info "Could not download or unpack Node ($($_.Exception.Message))."
+    }
+
+    if (-not $npm) {
+        Write-Info 'Falling back to winget for Node...'
+        if (Invoke-Winget 'OpenJS.NodeJS.LTS' 'Node.js LTS') { $npm = Resolve-Npm -RepoRoot $RepoRoot }
+    }
+    if (-not $npm) {
         Fail @"
-Node.js 18 or newer is required and winget is not available to install it.
-  1. Download the LTS installer from https://nodejs.org
-  2. Run it with the default options
-  3. Re-run install.bat
+Node.js 18 or newer is required and it could not be installed automatically.
+
+Install it by hand, then re-run install.bat:
+  1. $NodeUrl
+  2. Unpack it to .runtime\node inside this folder, or install the LTS from
+     https://nodejs.org
+
+To install with no internet at all, put the zip in vendor\ first -
+see vendor\README.md.
 "@
     }
-    $npm = Resolve-Npm
-    if (-not $npm) {
-        Fail 'Node.js was installed but npm still cannot be found. Close this window, open a new one, and re-run install.bat.'
-    }
+    Write-Ok 'Node.js installed into .runtime\node (private to this folder)'
 }
+
 $nodeVersion = '(unknown)'
-try { $nodeVersion = (& node --version) } catch { }
-Write-Ok "Node $nodeVersion"
+try { $nodeVersion = (& (Join-Path (Split-Path $npm -Parent) 'node.exe') --version 2>$null) } catch { }
+if (-not $nodeVersion) { try { $nodeVersion = (& node --version) } catch { } }
+Write-Ok "Node $nodeVersion  ($npm)"
 
 # --------------------------------------------------------------------------
 # 3. virtualenv + Python packages

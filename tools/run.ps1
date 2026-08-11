@@ -52,21 +52,6 @@ Update-PathFromRegistry
 $CmdExe = Join-Path $env:SystemRoot 'System32\cmd.exe'
 if (-not (Test-Path $CmdExe)) { $CmdExe = 'cmd.exe' }
 
-function Resolve-Npm {
-    foreach ($name in @('npm.cmd', 'npm')) {
-        $cmd = Get-Command $name -ErrorAction SilentlyContinue
-        if ($cmd) { return $cmd.Source }
-    }
-    foreach ($candidate in @(
-        (Join-Path $env:ProgramFiles 'nodejs\npm.cmd'),
-        (Join-Path ${env:ProgramFiles(x86)} 'nodejs\npm.cmd'),
-        (Join-Path $env:APPDATA 'npm\npm.cmd')
-    )) {
-        if ($candidate -and (Test-Path $candidate)) { return $candidate }
-    }
-    return $null
-}
-
 Write-Banner @('Bike Theft Tracker - starting') 'Magenta'
 
 # --------------------------------------------------------------------------
@@ -98,10 +83,11 @@ foreach ($item in @(
     Write-Ok $item.Label
 }
 
-$Npm = Resolve-Npm
+# Prefers the private copy in .runtime\node that setup.ps1 may have unpacked.
+$Npm = Resolve-Npm -RepoRoot $RepoRoot
 if (-not $Npm) {
     Write-Fail 'npm could not be found, even after re-reading PATH from the registry.'
-    Write-Fail 'Install Node.js 18+ from https://nodejs.org, then run install.bat.'
+    Write-Fail 'Run install.bat - it installs Node.js itself.'
     exit 1
 }
 Write-Ok "npm ($Npm)"

@@ -87,6 +87,59 @@ function Test-Command($name) {
     return [bool](Get-Command $name -ErrorAction SilentlyContinue)
 }
 
+# --------------------------------------------------------------------------
+# Node
+#
+# When the machine has no Node, setup.ps1 unpacks the official portable zip
+# into <repo>\.runtime\node rather than running an installer. Nothing is
+# installed system-wide, no admin rights are needed, and it disappears with the
+# repo folder like everything else here.
+#
+# All three scripts have to agree on where that copy lives, so the lookup is
+# defined once here instead of being repeated in each of them.
+# --------------------------------------------------------------------------
+function Get-PortableNodeDir($RepoRoot) {
+    return Join-Path $RepoRoot '.runtime\node'
+}
+
+function Resolve-Npm {
+    <#
+        Path to npm.cmd, preferring our own portable copy over the machine's.
+
+        Ours comes first deliberately: setup.ps1 unpacked it because the machine
+        either had no Node or had one too old for vite, so falling back to the
+        machine's copy would reintroduce the very problem the unpack solved.
+        Returns $null when there is no npm anywhere.
+    #>
+    param([string] $RepoRoot = '')
+
+    if ($RepoRoot) {
+        $portable = Get-PortableNodeDir $RepoRoot
+        if (Test-Path $portable) {
+            # The zip unpacks to a versioned folder, e.g. node-v24.19.0-win-x64.
+            $inner = Get-ChildItem -Path $portable -Directory -ErrorAction SilentlyContinue |
+                     Where-Object { Test-Path (Join-Path $_.FullName 'npm.cmd') } |
+                     Select-Object -First 1
+            if ($inner) { return (Join-Path $inner.FullName 'npm.cmd') }
+            $direct = Join-Path $portable 'npm.cmd'
+            if (Test-Path $direct) { return $direct }
+        }
+    }
+
+    foreach ($name in @('npm.cmd', 'npm')) {
+        $cmd = Get-Command $name -ErrorAction SilentlyContinue
+        if ($cmd) { return $cmd.Source }
+    }
+    foreach ($candidate in @(
+        (Join-Path $env:ProgramFiles 'nodejs\npm.cmd'),
+        (Join-Path ${env:ProgramFiles(x86)} 'nodejs\npm.cmd'),
+        (Join-Path $env:APPDATA 'npm\npm.cmd')
+    )) {
+        if ($candidate -and (Test-Path $candidate)) { return $candidate }
+    }
+    return $null
+}
+
 function Invoke-Winget($id, $label) {
     if (-not (Test-Command 'winget')) { return $false }
     Write-Info "Installing $label via winget ($id) - this can take a few minutes..."
