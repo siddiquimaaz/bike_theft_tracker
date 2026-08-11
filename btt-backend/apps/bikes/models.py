@@ -3,15 +3,9 @@ apps/bikes/models.py
 Registered motorcycles linked to owners.
 Engine and chassis numbers are the TRUE unique identifiers — immutable after registration.
 """
-import uuid
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
-
-
-def bike_photo_path(instance, filename):
-    ext = filename.rsplit(".", 1)[-1].lower()
-    return f"bikes/{uuid.uuid4()}.{ext}"
 
 
 class Bike(models.Model):

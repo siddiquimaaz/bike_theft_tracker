@@ -4,10 +4,7 @@ DRF serializers for user registration, auth, and admin management.
 All fields validated before reaching view layer.
 """
 import re
-import uuid
 from django.contrib.auth import get_user_model
-from django.utils import timezone
-from datetime import timedelta
 from rest_framework import serializers
 
 User = get_user_model()
@@ -102,19 +99,6 @@ class AuthorityCreationSerializer(serializers.ModelSerializer):
             is_verified=True,  # Admin-created accounts skip email verification
             **validated_data
         )
-
-
-class UserProfileSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = User
-        fields = [
-            "id", "full_name", "email", "phone", "role",
-            "city", "is_verified", "badge_number", "created_at",
-        ]
-        read_only_fields = ["id", "email", "role", "is_verified", "badge_number", "created_at"]
-
-    def validate_city(self, value):
-        return _normalize_city(value)
 
 
 class UserListSerializer(serializers.ModelSerializer):

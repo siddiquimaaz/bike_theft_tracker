@@ -1,6 +1,5 @@
 import pytest
 from datetime import date
-from django.utils import timezone
 
 from apps.notifications.notification_service import notify_sighting_submitted_extended
 from apps.notifications.models import Notification

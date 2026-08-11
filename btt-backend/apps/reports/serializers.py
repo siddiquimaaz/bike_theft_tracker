@@ -10,7 +10,6 @@ from rest_framework import serializers
 
 from apps.common.uploads import save_uploads
 from .models import TheftReport, RecoveryRecord
-from apps.bikes.serializers import BikeListSerializer
 
 
 class TheftReportCreateSerializer(serializers.ModelSerializer):

@@ -5,7 +5,6 @@ password reset. Covers happy paths and key error cases.
 """
 import pytest
 from django.contrib.auth import get_user_model
-from django.urls import reverse
 
 User = get_user_model()
 

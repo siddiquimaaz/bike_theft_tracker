@@ -4,7 +4,6 @@ ML endpoint tests — fuzzy match, hotspot clusters, trend analytics,
 recovery zones, and trigger reanalysis.
 """
 import pytest
-from datetime import date
 from django.utils import timezone
 from datetime import timedelta
 
