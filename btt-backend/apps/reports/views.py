@@ -9,7 +9,8 @@ from rest_framework import generics, status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 
-from apps.common.background import background_task, run_in_background
+from apps.common.api import error_response, get_object_or_none
+from apps.common.background import deferred_task, run_in_background
 from apps.common.city import filter_by_city, normalize_city
 from apps.users.permissions import (
     IsOwner,
@@ -188,13 +189,12 @@ def update_report_status(request, pk):
     queryset = TheftReport.objects.filter(deleted_at__isnull=True)
     if request.user.is_authority:
         if not normalize_city(request.user.city):
-            return Response({"error": NO_CITY_ERROR}, status=status.HTTP_403_FORBIDDEN)
+            return error_response(NO_CITY_ERROR, status.HTTP_403_FORBIDDEN)
         queryset = filter_by_city(queryset, request.user.city, "theft_city")
 
-    try:
-        report = queryset.get(pk=pk)
-    except TheftReport.DoesNotExist:
-        return Response({"error": NOT_FOUND_ERROR}, status=status.HTTP_404_NOT_FOUND)
+    report = get_object_or_none(queryset, pk=pk)
+    if report is None:
+        return error_response(NOT_FOUND_ERROR, status.HTTP_404_NOT_FOUND)
 
     serializer = StatusUpdateSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
@@ -215,15 +215,11 @@ def update_report_status(request, pk):
                     "The bike owner must confirm receipt via /recovery/confirm/, "
                     "or an admin can intervene."
                 )
-            return Response(
-                {
-                    "error": (
-                        f"Authority officers cannot set status '{new_status}' "
-                        f"on a case currently in '{report.status}'. "
-                        f"{next_hint}"
-                    )
-                },
-                status=status.HTTP_403_FORBIDDEN,
+            return error_response(
+                f"Authority officers cannot set status '{new_status}' "
+                f"on a case currently in '{report.status}'. "
+                f"{next_hint}",
+                status.HTTP_403_FORBIDDEN,
             )
 
     try:
@@ -232,7 +228,7 @@ def update_report_status(request, pk):
             changed_by=request.user,
         )
     except ValueError as exc:
-        return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return error_response(str(exc), status.HTTP_400_BAD_REQUEST)
 
     run_in_background(_notify_status_change, report, old_status)
     add_case_timeline_event(
@@ -262,91 +258,98 @@ def recovery_record(request, report_pk):
     PUT  /api/reports/{id}/recovery/  — Authority amends recovery record
     """
     if request.user.is_authority and not normalize_city(request.user.city):
-        return Response({"error": NO_CITY_ERROR}, status=status.HTTP_403_FORBIDDEN)
+        return error_response(NO_CITY_ERROR, status.HTTP_403_FORBIDDEN)
 
     queryset = _scope_reports_to_user(
         TheftReport.objects.filter(deleted_at__isnull=True), request.user
     )
 
-    try:
-        report = queryset.get(pk=report_pk)
-    except TheftReport.DoesNotExist:
-        return Response({"error": NOT_FOUND_ERROR}, status=status.HTTP_404_NOT_FOUND)
+    report = get_object_or_none(queryset, pk=report_pk)
+    if report is None:
+        return error_response(NOT_FOUND_ERROR, status.HTTP_404_NOT_FOUND)
 
-    if request.method == "GET":
-        if not hasattr(report, "recovery"):
-            return Response({"error": "No recovery record for this report."}, status=status.HTTP_404_NOT_FOUND)
-        # Owners see limited info — no officer contact details
-        rec = report.recovery
-        if request.user.is_owner:
-            return Response({
-                "recovery_date": rec.recovery_date,
-                "recovery_city": rec.recovery_city,
-                "bike_condition": rec.bike_condition,
-            })
-        return Response(RecoveryRecordSerializer(rec).data)
+    handler = {
+        "GET": _get_recovery,
+        "POST": _create_recovery,
+        "PUT": _amend_recovery,
+    }[request.method]
+    return handler(request, report)
 
-    if request.method == "POST":
-        if not request.user.is_authority:
-            return Response({"error": "Only Authority officers can log recoveries."}, status=status.HTTP_403_FORBIDDEN)
-        if hasattr(report, "recovery"):
-            return Response({"error": "This report already has a recovery record."}, status=status.HTTP_400_BAD_REQUEST)
 
-        serializer = RecoveryCreateSerializer(data=request.data, context={"request": request})
-        serializer.is_valid(raise_exception=True)
-        if report.status not in (
-            TheftReport.Status.UNDER_INVESTIGATION,
-            TheftReport.Status.ACTIVE_INVESTIGATION,
-            TheftReport.Status.BIKE_LOCATED,
-        ):
-            return Response(
-                {"error": "Recovery can only be logged for active investigations or located cases."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+def _get_recovery(request, report):
+    if not hasattr(report, "recovery"):
+        return error_response("No recovery record for this report.", status.HTTP_404_NOT_FOUND)
+    # Owners see limited info — no officer contact details
+    rec = report.recovery
+    if request.user.is_owner:
+        return Response({
+            "recovery_date": rec.recovery_date,
+            "recovery_city": rec.recovery_city,
+            "bike_condition": rec.bike_condition,
+        })
+    return Response(RecoveryRecordSerializer(rec).data)
 
-        with transaction.atomic():
-            recovery = serializer.save(theft_report=report, logged_by=request.user)
-            next_status = (
-                TheftReport.Status.RECOVERED
-                if report.status == TheftReport.Status.UNDER_INVESTIGATION
-                else TheftReport.Status.PENDING_VERIFICATION
-            )
-            report.transition_status(next_status, changed_by=request.user)
 
-        run_in_background(_notify_bike_recovered, report, recovery)
+def _create_recovery(request, report):
+    if not request.user.is_authority:
+        return error_response("Only Authority officers can log recoveries.", status.HTTP_403_FORBIDDEN)
+    if hasattr(report, "recovery"):
+        return error_response("This report already has a recovery record.", status.HTTP_400_BAD_REQUEST)
 
-        return Response(RecoveryRecordSerializer(recovery).data, status=status.HTTP_201_CREATED)
-
-    if request.method == "PUT":
-        if not request.user.is_authority:
-            return Response({"error": "Only Authority officers can amend recovery records."}, status=status.HTTP_403_FORBIDDEN)
-        if not hasattr(report, "recovery"):
-            return Response({"error": "No recovery record to amend."}, status=status.HTTP_404_NOT_FOUND)
-
-        serializer = RecoveryCreateSerializer(
-            report.recovery, data=request.data, partial=True, context={"request": request}
+    serializer = RecoveryCreateSerializer(data=request.data, context={"request": request})
+    serializer.is_valid(raise_exception=True)
+    if report.status not in (
+        TheftReport.Status.UNDER_INVESTIGATION,
+        TheftReport.Status.ACTIVE_INVESTIGATION,
+        TheftReport.Status.BIKE_LOCATED,
+    ):
+        return error_response(
+            "Recovery can only be logged for active investigations or located cases.",
+            status.HTTP_400_BAD_REQUEST,
         )
-        serializer.is_valid(raise_exception=True)
-        recovery = serializer.save()
 
-        run_in_background(_notify_recovery_amended, report, recovery, request.user)
+    with transaction.atomic():
+        recovery = serializer.save(theft_report=report, logged_by=request.user)
+        next_status = (
+            TheftReport.Status.RECOVERED
+            if report.status == TheftReport.Status.UNDER_INVESTIGATION
+            else TheftReport.Status.PENDING_VERIFICATION
+        )
+        report.transition_status(next_status, changed_by=request.user)
 
-        return Response(RecoveryRecordSerializer(recovery).data)
+    run_in_background(_notify_bike_recovered, report, recovery)
+
+    return Response(RecoveryRecordSerializer(recovery).data, status=status.HTTP_201_CREATED)
+
+
+def _amend_recovery(request, report):
+    if not request.user.is_authority:
+        return error_response("Only Authority officers can amend recovery records.", status.HTTP_403_FORBIDDEN)
+    if not hasattr(report, "recovery"):
+        return error_response("No recovery record to amend.", status.HTTP_404_NOT_FOUND)
+
+    serializer = RecoveryCreateSerializer(
+        report.recovery, data=request.data, partial=True, context={"request": request}
+    )
+    serializer.is_valid(raise_exception=True)
+    recovery = serializer.save()
+
+    run_in_background(_notify_recovery_amended, report, recovery, request.user)
+
+    return Response(RecoveryRecordSerializer(recovery).data)
 
 
 @api_view(["PUT"])
 @permission_classes([IsOwner])
 def confirm_recovery_receipt(request, report_pk):
     queryset = TheftReport.objects.filter(deleted_at__isnull=True, reported_by=request.user)
-    try:
-        report = queryset.get(pk=report_pk)
-    except TheftReport.DoesNotExist:
-        return Response({"error": NOT_FOUND_ERROR}, status=status.HTTP_404_NOT_FOUND)
+    report = get_object_or_none(queryset, pk=report_pk)
+    if report is None:
+        return error_response(NOT_FOUND_ERROR, status.HTTP_404_NOT_FOUND)
 
     if report.status not in (TheftReport.Status.PENDING_VERIFICATION, TheftReport.Status.RECOVERED):
-        return Response(
-            {"error": "Case is not awaiting owner verification."},
-            status=status.HTTP_400_BAD_REQUEST,
+        return error_response(
+            "Case is not awaiting owner verification.", status.HTTP_400_BAD_REQUEST
         )
 
     report.owner_recovery_confirmed = True
@@ -374,29 +377,24 @@ def confirm_recovery_receipt(request, report_pk):
 
 # ─── Notification triggers ─────────────────────────────────────────────────────
 
-# Imports stay inside the function bodies: the notification service imports
-# from this module, and deferring the lookup also lets tests patch the service
-# functions by their canonical path.
+_SERVICE = "apps.notifications.notification_service"
 
-@background_task("Failed to send theft report notification: %s")
-def _notify_report_created(report):
-    from apps.notifications.notification_service import notify_theft_reported
-    notify_theft_reported(report)
+_notify_report_created = deferred_task(
+    _SERVICE, "notify_theft_reported",
+    "Failed to send theft report notification: %s",
+)
 
+_notify_status_change = deferred_task(
+    _SERVICE, "notify_status_changed",
+    "Failed to send status change notification: %s",
+)
 
-@background_task("Failed to send status change notification: %s")
-def _notify_status_change(report, old_status):
-    from apps.notifications.notification_service import notify_status_changed
-    notify_status_changed(report, old_status)
+_notify_bike_recovered = deferred_task(
+    _SERVICE, "notify_bike_recovered",
+    "Failed to send recovery notification: %s",
+)
 
-
-@background_task("Failed to send recovery notification: %s")
-def _notify_bike_recovered(report, recovery):
-    from apps.notifications.notification_service import notify_bike_recovered
-    notify_bike_recovered(report, recovery)
-
-
-@background_task("Failed to send recovery amendment notification: %s")
-def _notify_recovery_amended(report, recovery, officer):
-    from apps.notifications.notification_service import notify_recovery_amended
-    notify_recovery_amended(report, recovery, officer)
+_notify_recovery_amended = deferred_task(
+    _SERVICE, "notify_recovery_amended",
+    "Failed to send recovery amendment notification: %s",
+)

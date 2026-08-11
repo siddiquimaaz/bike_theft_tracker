@@ -194,70 +194,6 @@ def notify_recovery_amended(report, recovery, officer):
     # TODO (future release): send_recovery_amended_email(owner, report, recovery, officer)
 
 
-# ─── Trigger: Sighting Submitted ──────────────────────────────────────────────
-
-# Minimum fuzzy-match score that triggers an owner alert on submission.
-# Below this threshold the match is too uncertain to notify.
-_OWNER_ALERT_THRESHOLD = 70
-
-def notify_sighting_submitted(sighting):
-    """
-    1. Confirms receipt to the sighter (in-app).
-    2. If the fuzzy match score meets the threshold and a top-match bike
-       exists, alerts the bike owner immediately (in-app) — they don't
-       have to wait for authority verification to learn about the sighting.
-    """
-    # ── Notify the sighter ───────────────────────────────────────────────
-    if sighting.sighter:
-        score_note = (
-            f" A potential match was found ({sighting.fuzzy_match_score:.0f}% confidence)."
-            if sighting.fuzzy_match_score and sighting.fuzzy_match_score >= _OWNER_ALERT_THRESHOLD
-            else ""
-        )
-        _create_in_app(
-            sighting.sighter,
-            Notification.Type.SYSTEM,
-            f"Your sighting in {sighting.sighting_city} has been received."
-            f"{score_note} Authorities will review it shortly.",
-        )
-
-    # ── Alert the bike owner if confidence is high enough ────────────────
-    if (
-        sighting.fuzzy_match_score is not None
-        and sighting.fuzzy_match_score >= _OWNER_ALERT_THRESHOLD
-        and sighting.top_match_bike is not None
-    ):
-        owner = sighting.top_match_bike.owner
-        bike = sighting.top_match_bike
-        _create_in_app(
-            owner,
-            Notification.Type.SIGHTING_MATCHED,
-            f"A community sighting in {sighting.sighting_city} on {sighting.sighting_date} "
-            f"may match your {bike.make} {bike.model} "
-            f"({sighting.fuzzy_match_score:.0f}% confidence). "
-            f"Authorities have been notified and are reviewing the report.",
-        )
-
-        # Notify authority users in the same city and all admins so the
-        # verification queue is acted on quickly.
-        from apps.users.models import User
-        admin_qs = User.objects.filter(role=User.Role.ADMIN, is_active=True)
-        for officer in _active_authorities_in(sighting.sighting_city or ""):
-            _create_in_app(
-                officer,
-                Notification.Type.SYSTEM,
-                f"New high-confidence sighting submitted in {sighting.sighting_city} "
-                f"({sighting.fuzzy_match_score:.0f}%). Review and verify promptly.",
-            )
-        for admin in admin_qs:
-            _create_in_app(
-                admin,
-                Notification.Type.SYSTEM,
-                f"High-confidence sighting submitted in {sighting.sighting_city}; "
-                f"authority review pending.",
-            )
-
-
 # ─── Trigger: Sighting Verified ───────────────────────────────────────────────
 
 def notify_sighting_verified(sighting):
@@ -293,9 +229,6 @@ def notify_sighting_submitted_extended(sighting):
     - Photo + high fuzzy score -> urgent authority alert + owner handshake (owner pinged)
     - Description only / low confidence -> owner handshake only (authority not notified until owner confirms)
     """
-    OWNER_ALERT_THRESHOLD = getattr(settings, "OWNER_ALERT_THRESHOLD", 70)
-    PHOTO_HIGH_CONFIDENCE_THRESHOLD = getattr(settings, "PHOTO_HIGH_CONFIDENCE_THRESHOLD", 85)
-    OWNER_RESPONSE_HOURS = getattr(settings, "SIGHTING_OWNER_RESPONSE_HOURS", 24)
     now = timezone.now()
     score = float(sighting.fuzzy_match_score or 0)
     has_photo = bool(sighting.photo_url)
@@ -315,8 +248,8 @@ def notify_sighting_submitted_extended(sighting):
     if sighting.top_match_bike:
         owner = sighting.top_match_bike.owner
         # Photo + high confidence -> urgent authority + ping owner
-        if has_photo and score >= PHOTO_HIGH_CONFIDENCE_THRESHOLD:
-            _open_owner_handshake(sighting, now, OWNER_RESPONSE_HOURS)
+        if has_photo and score >= settings.PHOTO_HIGH_CONFIDENCE_THRESHOLD:
+            _open_owner_handshake(sighting, now, settings.SIGHTING_OWNER_RESPONSE_HOURS)
 
             _create_in_app(
                 owner,
@@ -340,8 +273,8 @@ def notify_sighting_submitted_extended(sighting):
             return
 
         # Low-confidence or description-only: ping owner for confirmation first
-        if score >= OWNER_ALERT_THRESHOLD:
-            _open_owner_handshake(sighting, now, OWNER_RESPONSE_HOURS)
+        if score >= settings.OWNER_ALERT_THRESHOLD:
+            _open_owner_handshake(sighting, now, settings.SIGHTING_OWNER_RESPONSE_HOURS)
 
             _create_in_app(
                 owner,
@@ -426,7 +359,7 @@ def auto_escalate_pending_owner_responses(hours=None):
     from apps.sightings.models import SightingReport
 
     now = timezone.now()
-    grace_hours = hours if hours is not None else getattr(settings, "SIGHTING_OWNER_RESPONSE_HOURS", 24)
+    grace_hours = hours if hours is not None else settings.SIGHTING_OWNER_RESPONSE_HOURS
     cutoff = now - timedelta(hours=grace_hours)
     pending = SightingReport.objects.filter(
         is_archived=False,

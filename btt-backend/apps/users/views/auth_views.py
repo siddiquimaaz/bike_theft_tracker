@@ -20,7 +20,8 @@ from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
-from apps.common.background import background_task, run_in_background
+from apps.common.api import error_response
+from apps.common.background import deferred_task, run_in_background
 from apps.users.serializers import (
     UserRegistrationSerializer,
     PasswordResetRequestSerializer,
@@ -233,15 +234,12 @@ def logout(request):
     """
     refresh_token = request.data.get("refresh")
     if not refresh_token:
-        return Response(
-            {"error": "refresh token is required."},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
+        return error_response("refresh token is required.", status.HTTP_400_BAD_REQUEST)
     try:
         token = RefreshToken(refresh_token)
         token.blacklist()
     except TokenError as exc:
-        return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return error_response(str(exc), status.HTTP_400_BAD_REQUEST)
 
     return Response({"message": "Logged out successfully."})
 
@@ -324,13 +322,12 @@ def check_cnic(request):
 
 # ─── Email helpers ────────────────────────────────────────────────────────────
 
-@background_task("Failed to send verification email: %s")
-def _send_verification_email(user):
-    from apps.notifications.email_service import send_email_verification
-    send_email_verification(user)
+_send_verification_email = deferred_task(
+    "apps.notifications.email_service", "send_email_verification",
+    "Failed to send verification email: %s",
+)
 
-
-@background_task("Failed to send password reset email: %s")
-def _send_password_reset_email(user):
-    from apps.notifications.email_service import send_password_reset_email
-    send_password_reset_email(user)
+_send_password_reset_email = deferred_task(
+    "apps.notifications.email_service", "send_password_reset_email",
+    "Failed to send password reset email: %s",
+)

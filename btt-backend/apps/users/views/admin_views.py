@@ -9,7 +9,7 @@ from rest_framework import generics, status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 
-from apps.common.background import background_task, run_in_background
+from apps.common.background import deferred_task, run_in_background
 from apps.users.models import AuditLog
 from apps.users.permissions import IsAdminUser
 from apps.users.serializers import (
@@ -50,11 +50,10 @@ class CreateAuthorityView(generics.CreateAPIView):
         user = serializer.save()
         run_in_background(self._send_credentials_email, user)
 
-    @staticmethod
-    @background_task("Failed to send authority credentials email: %s")
-    def _send_credentials_email(user):
-        from apps.notifications.email_service import send_authority_credentials_email
-        send_authority_credentials_email(user)
+    _send_credentials_email = staticmethod(deferred_task(
+        "apps.notifications.email_service", "send_authority_credentials_email",
+        "Failed to send authority credentials email: %s",
+    ))
 
 
 class UserStatusUpdateView(generics.UpdateAPIView):
